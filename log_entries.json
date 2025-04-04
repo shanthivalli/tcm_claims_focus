@@ -1,0 +1,212 @@
+[
+    {
+        "service_date": "2025-04-03",
+        "member_name": "BARBARA QUILLIN",
+        "member_id": "235",
+        "member_dob": "1960-07-07",
+        "note_category": "Administrative",
+        "admin_type": "Training",
+        "admin_comments": "test1",
+        "medicaid_id": "P704546"
+    },
+    {
+        "timestamp": "2025-04-03 20:57:11",
+        "medicaid_id": "P704546",
+        "member_name": "BARBARA QUILLIN",
+        "member_id": "8989",
+        "member_dob": "1960-07-07",
+        "note_type": "New Note",
+        "service_date": "2025-04-03",
+        "travel_to_client": "Yes",
+        "note_category": "Administrative",
+        "travel_time": 0.0,
+        "travel_details": "",
+        "admin_type": "MEETING",
+        "admin_comments": "",
+        "total_travel_time": 0.0,
+        "travel_locations": "",
+        "travel_comments": "",
+        "tasks_completed": "Administrative task",
+        "next_steps": "N/A for Administrative note",
+        "contact_types": [
+            "DOCUMENTATION"
+        ]
+    },
+    {
+        "timestamp": "2025-04-03 20:58:13",
+        "medicaid_id": "H947889",
+        "member_name": "REGGIE BOULDEN",
+        "member_id": "4411",
+        "member_dob": "1967-11-11",
+        "note_type": "Amendment",
+        "service_date": "2025-04-03",
+        "travel_to_client": "Yes",
+        "note_category": "Administrative",
+        "amendment_reason": "",
+        "travel_time": 0.0,
+        "travel_details": "",
+        "admin_type": "Training",
+        "admin_comments": "test",
+        "total_travel_time": 0.0,
+        "travel_locations": "",
+        "travel_comments": "",
+        "tasks_completed": "Administrative task",
+        "next_steps": "N/A for Administrative note",
+        "contact_types": [
+            "DOCUMENTATION"
+        ]
+    },
+    {
+        "timestamp": "2025-04-03 21:12:19",
+        "medicaid_id": "P704546",
+        "member_name": "BARBARA QUILLIN",
+        "member_id": "235.0",
+        "member_dob": "1960-07-07",
+        "note_type": "New Note",
+        "service_date": "2025-04-03",
+        "travel_to_client": "Yes",
+        "note_category": "Administrative",
+        "travel_time": 0.75,
+        "travel_details": "test",
+        "admin_type": "Training",
+        "admin_comments": "test",
+        "total_travel_time": 0.0,
+        "travel_locations": "",
+        "travel_comments": "",
+        "tasks_completed": "Administrative task",
+        "next_steps": "N/A for Administrative note",
+        "contact_types": [
+            "DOCUMENTATION"
+        ]
+    },
+    {
+        "timestamp": "2025-04-03 21:59:00",
+        "medicaid_id": "P704546",
+        "member_name": "BARBARA QUILLIN",
+        "member_id": "235.0",
+        "member_dob": "1960-07-07",
+        "note_type": "New Note",
+        "service_date": "2025-04-03",
+        "travel_to_client": "Yes",
+        "note_category": "Billable- TCM",
+        "travel_time": 0.0,
+        "travel_details": "",
+        "tcm_hours": 0.0,
+        "tcm_units": 0,
+        "icd_10": true,
+        "cpt_code": "T1017 TRANSITION COORDINATION",
+        "total_travel_time": 0.0,
+        "travel_locations": "",
+        "travel_comments": "test",
+        "tasks_completed": "test",
+        "next_steps": "ets",
+        "contact_types": [
+            "EMAIL",
+            "DOCUMENTATION"
+        ],
+        "first_contact": {
+            "contact_name": "Sreevani Patil",
+            "contact_email": "patilsreevani@gmail.com",
+            "contact_phone": "17206756884",
+            "contact_outcome": "SPOKE TO CONTACT"
+        },
+        "admin_comments": "test"
+    },
+    {
+        "timestamp": "2025-04-03 21:59:59",
+        "medicaid_id": "P704546",
+        "member_name": "BARBARA QUILLIN",
+        "member_id": "235.0",
+        "member_dob": "1960-07-07",
+        "note_type": "New Note",
+        "service_date": "2025-04-16",
+        "travel_to_client": "Yes",
+        "note_category": "Administrative",
+        "travel_time": 0.75,
+        "travel_details": "",
+        "admin_type": "Training",
+        "admin_comments": "",
+        "total_travel_time": 0.0,
+        "travel_locations": "",
+        "travel_comments": "",
+        "tasks_completed": "Administrative task",
+        "next_steps": "N/A for Administrative note",
+        "contact_types": [
+            "DOCUMENTATION"
+        ]
+    },
+    {
+        "timestamp": "2025-04-03 22:31:25",
+        "medicaid_id": "P704546",
+        "member_name": "BARBARA QUILLIN",
+        "member_id": "235.0",
+        "member_dob": "1960-07-07",
+        "note_type": "New Note",
+        "service_date": "2025-04-17",
+        "travel_to_client": "Yes",
+        "note_category": "Administrative",
+        "travel_time": 0.0,
+        "travel_details": "",
+        "admin_type": "Travel",
+        "admin_comments": "",
+        "total_travel_time": 0.0,
+        "travel_locations": "",
+        "travel_comments": "",
+        "tasks_completed": "Administrative task",
+        "next_steps": "N/A for Administrative note",
+        "contact_types": [
+            "DOCUMENTATION"
+        ]
+    },
+    {
+        "timestamp": "2025-04-03 23:36:22",
+        "medicaid_id": "P704546",
+        "member_name": "BARBARA QUILLIN",
+        "member_id": "235.0",
+        "member_dob": "1960-07-07",
+        "note_type": "New Note",
+        "service_date": "2025-04-03",
+        "travel_to_client": "Yes",
+        "note_category": "Billable- TCM",
+        "travel_time": 0.0,
+        "travel_details": "",
+        "tcm_hours": 0.0,
+        "tcm_units": 0,
+        "icd_10": false,
+        "cpt_code": "T1017 TRANSITION COORDINATION",
+        "total_travel_time": 0.0,
+        "travel_locations": "",
+        "travel_comments": "",
+        "tasks_completed": "",
+        "next_steps": "",
+        "contact_types": [
+            "EMAIL",
+            "IN PERSON"
+        ],
+        "first_contact": {
+            "contact_name": "",
+            "contact_email": "",
+            "contact_phone": "",
+            "contact_outcome": "DISCONNECTED/WRONG NUMBER"
+        },
+        "second_contact": {
+            "contact_name": "",
+            "contact_email": "",
+            "contact_phone": "",
+            "contact_outcome": "SPOKE TO CONTACT"
+        },
+        "third_contact": {
+            "contact_name": "",
+            "contact_email": "",
+            "contact_phone": "",
+            "contact_outcome": "SPOKE TO CONTACT"
+        },
+        "fourth_contact": {
+            "contact_name": "",
+            "contact_email": "",
+            "contact_phone": "",
+            "contact_outcome": "SPOKE TO CONTACT"
+        },
+        "admin_comments": ""
+    }
+]
