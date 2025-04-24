@@ -712,118 +712,14 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                 st.session_state.admin_selection = "Payroll"
                 st.rerun()
 
+    # Add another separator line after admin sub-navigation if needed
+if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
     st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 1rem;'>", unsafe_allow_html=True)
-
-    # Then handle the content based on selection
-    if st.session_state.admin_selection == "Process Claims":
-        st.markdown('<h2 class="subheader">Process Claims</h2>', unsafe_allow_html=True)
-        
-        # Create tabs for different data import methods
-        import_tab1, import_tab2 = st.tabs(["Upload Excel File", "Import from Existing Data"])
-        
-        with import_tab1:
-            st.markdown("### Upload Claims File")
-            uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx', 'xls'])
-            
-            if uploaded_file is not None:
-                try:
-                    # Read the Excel file
-                    df = pd.read_excel(uploaded_file)
-                    st.success("File uploaded successfully!")
-                    
-                    # Show data preview
-                    st.markdown("### Data Preview")
-                    st.dataframe(df.head())
-                    
-                    # Date range filter
-                    st.markdown("### Filter by Date Range")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        start_date = st.date_input("Start Date", pd.to_datetime("2025-01-01"))
-                    with col2:
-                        end_date = st.date_input("End Date", pd.to_datetime("2025-12-31"))
-                    
-                    # Filter button
-                    if st.button("Apply Filter"):
-                        # Convert dates if needed and filter
-                        filtered_df = df  # Add your filtering logic here
-                        st.session_state.filtered_claims_df = filtered_df
-                        st.success(f"Filtered to {len(filtered_df)} records")
-                        
-                        # Show filtered data
-                        st.markdown("### Filtered Data")
-                        st.dataframe(filtered_df)
-                        
-                        # Export button
-                        if not filtered_df.empty:
-                            csv = filtered_df.to_csv(index=False)
-                            st.download_button(
-                                label="Download Filtered Data",
-                                data=csv,
-                                file_name="filtered_claims.csv",
-                                mime="text/csv"
-                            )
-                except Exception as e:
-                    st.error(f"Error processing file: {str(e)}")
-        
-        with import_tab2:
-            st.markdown("### Import from Existing Records")
-            
-            # Date range selector for existing records
-            st.markdown("#### Select Date Range")
-            date_range = st.date_input(
-                "Filter by Date Range",
-                value=(datetime.now().date() - pd.Timedelta(days=30), datetime.now().date()),
-                max_value=datetime.now().date()
-            )
-            
-            # Load existing records
-            try:
-                with open('log_entries.json', 'r') as f:
-                    log_entries = json.load(f)
-                
-                if log_entries:
-                    # Convert to DataFrame
-                    df = pd.DataFrame(log_entries)
-                    
-                    # Filter by date if needed
-                    if len(date_range) == 2:
-                        start_date, end_date = date_range
-                        # Add your date filtering logic here
-                    
-                    # Show data
-                    st.markdown("#### Available Records")
-                    st.dataframe(df)
-                    
-                    # Export button
-                    if not df.empty:
-                        csv = df.to_csv(index=False)
-                        st.download_button(
-                            label="Download Records",
-                            data=csv,
-                            file_name="claims_records.csv",
-                            mime="text/csv"
-                        )
-                else:
-                    st.info("No records found")
-            except (FileNotFoundError, json.JSONDecodeError) as e:
-                st.error(f"Error loading records: {str(e)}")
-
-    elif st.session_state.admin_selection == "View Forms":
-        # Your existing View Forms code here
-        pass
-
-    elif st.session_state.admin_selection == "Payroll":
-        st.markdown("""
-            <div style='text-align: center; padding: 50px; background-color: #f0f2f6; border-radius: 10px;'>
-                <h2 style='color: #1f77b4;'>🚧 Coming Soon! 🚧</h2>
-            </div>
-        """, unsafe_allow_html=True)
 
 # Add this code to handle the admin selections
 if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
-    if st.session_state.get('admin_selection') == "View Forms":
-        st.markdown('<h2 class="subheader">View Forms</h2>', unsafe_allow_html=True)
+    if st.session_state.get('admin_selection') == "View Forms":  # Changed from "View Submitted Forms"
+        st.markdown('<h2 class="subheader">View Submitted Forms</h2>', unsafe_allow_html=True)
         
         # Load log entries
         try:
@@ -1118,7 +1014,7 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                             st.markdown(f"Phone: {contact.get('contact_phone', '')}")
                             st.markdown(f"Outcome: {contact.get('contact_outcome', '')}")
                             
-                            # Additional contactsth
+                            # Additional contacts
                             for i, contact_key in enumerate(['second_contact', 'third_contact', 'fourth_contact']):
                                 if contact_key in selected_entry:
                                     st.markdown(f"**Contact {i+2}:**")
@@ -1139,8 +1035,8 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
         except (FileNotFoundError, json.JSONDecodeError) as e:
             st.info(f"No form submissions found. Error: {str(e)}")
     
-    elif st.session_state.get('admin_selection') == "View Forms":
-        st.markdown('<h2 class="subheader">View Forms</h2>', unsafe_allow_html=True)
+    elif st.session_state.get('admin_selection') == "Process Claims":
+        st.markdown('<h2 class="subheader">Process Claims</h2>', unsafe_allow_html=True)
         
         # Create tabs for different data import methods
         import_tab1, import_tab2 = st.tabs(["Upload Excel File", "Import from Existing Data"])
@@ -1163,10 +1059,6 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                     
                     # Load the selected sheet
                     claims_df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
-                    
-                    # Display preview of the selected sheet data
-                    st.write(f"Preview of selected sheet: {selected_sheet}")
-                    st.dataframe(claims_df.head(), use_container_width=True)
                     
                     # Store the claims_df in session state
                     st.session_state.claims_df = claims_df
@@ -1243,7 +1135,7 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                             st.error(f"Error filtering data: {str(e)}")
 
                     # Create tabs for different views inside import_tab1
-                    data_tab1, data_tab2, data_tab3, data_tab4 = st.tabs(["Claims Data", "Cleaned Data", "Run Claims", "Stats"])
+                    data_tab1, data_tab2, data_tab3, data_tab4 = st.tabs(["Claims Data", "Cleaned Data", "Run Claims", "Claims Analytics"])
                     
                     with data_tab1:
                         st.markdown("#### Claims Data")
