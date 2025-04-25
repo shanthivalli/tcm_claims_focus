@@ -886,43 +886,6 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                     
                     # Display the table
                     st.dataframe(df, use_container_width=True)
-                    
-                    # Add bulk download button for filtered entries
-                    if filtered_entries:
-                        st.markdown("### Download Options")
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            # Format all filtered entries for CSV
-                            csv_data = format_data_for_csv(filtered_entries)
-                            
-                            # Convert to CSV string with proper encoding
-                            csv_buffer = StringIO()
-                            csv_data.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-                            
-                            # Create download button
-                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                            st.download_button(
-                                label="Download All as CSV",
-                                data=csv_buffer.getvalue(),
-                                file_name=f"all_entries_{timestamp}.csv",
-                                mime="text/csv"
-                            )
-                        
-                        with col2:
-                            # Create Excel file in memory
-                            output = BytesIO()
-                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                format_excel_file(csv_data, writer, 'Entries')
-                            
-                            # Create download button
-                            st.download_button(
-                                label="Download All as Excel",
-                                data=output.getvalue(),
-                                file_name=f"all_entries_{timestamp}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                    
                     st.markdown("---")  # Add a visual separator
 
                     # Display entries list
@@ -1010,23 +973,7 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                             st.markdown("### Administrative Comments")
                             st.text(selected_entry.get('admin_comments', 'None provided'))
                             
-                        # Add CSV download button
-                        if st.button("Download as CSV"):
-                            # Format the data for CSV
-                            csv_data = format_data_for_csv([selected_entry])
-                            
-                            # Convert to CSV string
-                            csv_buffer = StringIO()
-                            csv_data.to_csv(csv_buffer, index=False)
-                            
-                            # Create download button
-                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                            st.download_button(
-                                label="Click to Download CSV",
-                                data=csv_buffer.getvalue(),
-                                file_name=f"entry_{timestamp}.csv",
-                                mime="text/csv"
-                            )
+                        
                 else:
                     st.info("No entries match the selected filters.")
             else:
@@ -3544,6 +3491,11 @@ if st.session_state.duplicate_service_date_confirmed:
                 # Change navigation to Member Login
                 st.session_state.nav_selection = "Member Login"
                 st.rerun()
+
+elif st.session_state.get('admin_selection') == "Payroll":
+    st.markdown('<h2 class="subheader">Payroll</h2>', unsafe_allow_html=True)
+    st.markdown("🚧 **Coming Soon!** 🚧")
+    st.markdown("This feature is currently under development. Check back later for updates.")
 
 def format_data_for_csv(entries):
     """Format entries data for CSV export with proper formatting"""
