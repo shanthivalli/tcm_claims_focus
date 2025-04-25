@@ -1,7 +1,10 @@
 import streamlit as st
-import streamlit as st
 import pandas as pd
 from datetime import datetime, date
+import traceback
+from io import BytesIO
+from openpyxl.styles import PatternFill, Font, Border, Side
+from openpyxl.utils import get_column_letter
 import json
 import hashlib
 from typing import Dict
@@ -12,8 +15,8 @@ from io import BytesIO
 from openpyxl.styles import NamedStyle, Font, PatternFill, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 import difflib
-import traceback
 import plotly.express as px
+from io import StringIO
 
 # Define all constants at the top
 TOTAL_SECTIONS = 8  # Define this before any other code
@@ -78,6 +81,83 @@ if 'duplicate_service_date_confirmed' not in st.session_state:
 
 if 'selected_service_date' not in st.session_state:
     st.session_state.selected_service_date = None
+
+def format_excel_file(df, writer, sheet_name='Sheet1'):
+    """Format Excel file with styling and auto-width columns"""
+    # Convert datetime columns to string format before writing
+    export_df = df.copy()
+    date_columns = ['DOS', '[From Date]', '[To Date]', 'Member DOB', 'DOB']  # Added 'DOB'
+    for col in date_columns:
+        if col in export_df.columns:
+            export_df[col] = pd.to_datetime(export_df[col], errors='coerce').dt.strftime('%m/%d/%Y')
+    
+    # Write the dataframe
+    export_df.to_excel(writer, index=False, sheet_name=sheet_name)
+    
+    # Get the workbook and worksheet
+    workbook = writer.book
+    worksheet = writer.sheets[sheet_name]
+    
+    # Define styles
+    header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+    header_font = Font(bold=True, color='FFFFFF', name='Calibri', size=11)
+    regular_font = Font(name='Calibri', size=11)
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Define cell alignment
+    alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    
+    # Apply header style and auto-width
+    for col_idx, column in enumerate(export_df.columns, 1):
+        column_letter = get_column_letter(col_idx)
+        
+        # Style header cell
+        header_cell = worksheet.cell(row=1, column=col_idx)
+        header_cell.fill = header_fill
+        header_cell.font = header_font
+        header_cell.border = thin_border
+        header_cell.alignment = alignment
+        
+        # Calculate column width
+        max_length = len(str(column)) + 2  # Start with header length
+        
+        # Check content length for each cell in the column
+        for row_idx in range(2, len(export_df) + 2):  # +2 because excel is 1-based and we have header
+            cell = worksheet.cell(row=row_idx, column=col_idx)
+            cell.font = regular_font
+            cell.border = thin_border
+            cell.alignment = alignment
+            
+            if cell.value:
+                # For date columns, use fixed width
+                if column in date_columns:
+                    max_length = max(max_length, 12)  # Fixed width for dates
+                else:
+                    max_length = max(max_length, min(len(str(cell.value)) + 2, 50))
+        
+        # Set column width (minimum 10, maximum 50)
+        adjusted_width = max(min(max_length, 50), 10)
+        worksheet.column_dimensions[column_letter].width = adjusted_width
+    
+    # Freeze the header row
+    worksheet.freeze_panes = 'A2'
+    
+    # Set row height
+    worksheet.row_dimensions[1].height = 20  # Header row
+    for row in range(2, len(export_df) + 2):
+        worksheet.row_dimensions[row].height = 15  # Data rows
+    
+    # Apply alternating row colors
+    for row in range(2, len(export_df) + 2):
+        if row % 2 == 0:  # Even rows
+            for col in range(1, len(export_df.columns) + 1):
+                cell = worksheet.cell(row=row, column=col)
+                cell.fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
 
 def correct_member_info(df1_selected, masterdf_selected):
     # Copy the original dataframe
@@ -807,153 +887,54 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                     # Display the table
                     st.dataframe(df, use_container_width=True)
                     
-                    # Add export button
-                    if st.button("Export to Excel"):
-                        # Create Excel file in memory
-                        output = BytesIO()
-                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                            # Create a complete export dataframe with ALL fields from the original entries
-                            export_data = []
-                            for entry in filtered_entries:
-                                # Convert the entire entry to a flat dictionary
-                                flat_entry = {}
-                                
-                                # Process the main entry fields
-                                for key, value in entry.items():
-                                    # Handle nested dictionaries and lists
-                                    if isinstance(value, dict):
-                                        for sub_key, sub_value in value.items():
-                                            flat_entry[f"{key}_{sub_key}"] = sub_value
-                                    elif isinstance(value, list):
-                                        flat_entry[key] = ', '.join(str(item) for item in value)
-                                    else:
-                                        # Format dates consistently
-                                        if key in ['service_date', 'member_dob']:
-                                            try:
-                                                if pd.notna(value):
-                                                    date_val = pd.to_datetime(value)
-                                                    flat_entry[key] = date_val.strftime('%m/%d/%Y')
-                                                else:
-                                                    flat_entry[key] = ''
-                                            except:
-                                                flat_entry[key] = value
-                                        # Format times consistently
-                                        elif key in ['start_time', 'end_time']:
-                                            try:
-                                                if pd.notna(value):
-                                                    time_val = pd.to_datetime(value).time()
-                                                    flat_entry[key] = time_val.strftime('%I:%M %p')
-                                                else:
-                                                    flat_entry[key] = ''
-                                            except:
-                                                flat_entry[key] = value
-                                        # Format numbers consistently
-                                        elif key in ['tcm_hours', 'travel_time', 'total_travel_time']:
-                                            try:
-                                                if pd.notna(value):
-                                                    flat_entry[key] = f"{float(value):.2f}"
-                                                else:
-                                                    flat_entry[key] = '0.00'
-                                            except:
-                                                flat_entry[key] = value
-                                        else:
-                                            flat_entry[key] = value
-                                
-                                export_data.append(flat_entry)
-                            
-                            # Create dataframe with all fields
-                            export_df = pd.DataFrame(export_data)
-                            
-                            # Define preferred column order
-                            preferred_columns = [
-                                'timestamp', 'medicaid_id', 'member_name', 'member_id', 'member_dob',
-                                'service_date', 'note_category', 'note_type', 'tc_name', 'tc_email',
-                                'start_time', 'end_time', 'tcm_hours', 'tcm_units', 'travel_time',
-                                'travel_to_client', 'travel_details', 'admin_type', 'admin_comments',
-                                'tasks_completed', 'next_steps', 'contact_types',
-                                'first_contact_name', 'first_contact_email', 'first_contact_phone', 'first_contact_outcome',
-                                'second_contact_name', 'second_contact_email', 'second_contact_phone', 'second_contact_outcome',
-                                'third_contact_name', 'third_contact_email', 'third_contact_phone', 'third_contact_outcome',
-                                'fourth_contact_name', 'fourth_contact_email', 'fourth_contact_phone', 'fourth_contact_outcome'
-                            ]
-                            
-                            # Get all columns from the dataframe
-                            all_columns = list(export_df.columns)
-                            
-                            # Order columns: first the preferred ones (if they exist), then any remaining ones
-                            ordered_columns = [col for col in preferred_columns if col in all_columns]
-                            remaining_columns = [col for col in all_columns if col not in ordered_columns]
-                            final_columns = ordered_columns + remaining_columns
-                            
-                            # Reorder and clean the dataframe columns
-                            if final_columns:
-                                export_df = export_df[final_columns]
-                                
-                                # Clean up column names
-                                export_df.columns = [col.replace('_', ' ').title() for col in export_df.columns]
-                            
-                            # Export to Excel with formatting
-                            export_df.to_excel(writer, index=False, sheet_name='Form Submissions')
-                            
-                            # Access the workbook and worksheet
-                            workbook = writer.book
-                            worksheet = writer.sheets['Form Submissions']
-                            
-                            # Define styles
-                            header_style = NamedStyle(name='header_style')
-                            header_style.font = Font(bold=True, color='FFFFFF')
-                            header_style.fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
-                            header_style.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-                            header_style.border = Border(
-                                left=Side(style='thin'),
-                                right=Side(style='thin'),
-                                top=Side(style='thin'),
-                                bottom=Side(style='thin')
-                            )
-                            
-                            # Apply styles to header row
-                            for col_num, column_title in enumerate(export_df.columns, 1):
-                                cell = worksheet.cell(row=1, column=col_num)
-                                cell.style = header_style
-                            
-                            # Adjust column widths and apply data formatting
-                            for idx, col in enumerate(export_df.columns):
-                                column_letter = get_column_letter(idx + 1)
-                                
-                                # Set minimum and maximum widths
-                                min_width = 15
-                                max_width = 50
-                                
-                                # Calculate optimal width based on content
-                                column_width = max(
-                                    len(str(col)),
-                                    export_df[col].astype(str).str.len().max() if not export_df.empty else 0
-                                )
-                                
-                                # Apply width constraints
-                                final_width = max(min_width, min(column_width + 2, max_width))
-                                worksheet.column_dimensions[column_letter].width = final_width
-                                
-                                # Apply text wrapping to all cells in the column
-                                for cell in worksheet[column_letter][1:]:
-                                    cell.alignment = Alignment(wrap_text=True, vertical='top')
+                    # Add bulk download button for filtered entries
+                    if filtered_entries:
+                        st.markdown("### Download Options")
+                        col1, col2 = st.columns(2)
                         
-                        # Set up download button
-                        output.seek(0)
-                        st.download_button(
-                            label="Download Excel file",
-                            data=output.getvalue(),
-                            file_name=f"form_submissions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                        with col1:
+                            # Format all filtered entries for CSV
+                            csv_data = format_data_for_csv(filtered_entries)
+                            
+                            # Convert to CSV string with proper encoding
+                            csv_buffer = StringIO()
+                            csv_data.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+                            
+                            # Create download button
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            st.download_button(
+                                label="Download All as CSV",
+                                data=csv_buffer.getvalue(),
+                                file_name=f"all_entries_{timestamp}.csv",
+                                mime="text/csv"
+                            )
+                        
+                        with col2:
+                            # Create Excel file in memory
+                            output = BytesIO()
+                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                format_excel_file(csv_data, writer, 'Entries')
+                            
+                            # Create download button
+                            st.download_button(
+                                label="Download All as Excel",
+                                data=output.getvalue(),
+                                file_name=f"all_entries_{timestamp}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
                     
-                    # # Add view details functionality
-                    # st.markdown("### View Form Details")
-                    # selected_entry_idx = st.selectbox(
-                    #     "Select a form to view details",
-                    #     options=range(len(filtered_entries)),
-                    #     format_func=lambda i: f"{filtered_entries[i].get('member_name', '')} - {filtered_entries[i].get('service_date', '')} ({filtered_entries[i].get('note_category', '')})"
-                    # )
+                    st.markdown("---")  # Add a visual separator
+
+                    # Display entries list
+                    st.markdown("### Entries List")
+                    
+                    # Add view details functionality
+                    st.markdown("### View Form Details")
+                    selected_entry_idx = st.selectbox(
+                        "Select a form to view details",
+                        options=range(len(filtered_entries)),
+                        format_func=lambda i: f"{filtered_entries[i].get('member_name', '')} - {filtered_entries[i].get('service_date', '')} ({filtered_entries[i].get('note_category', '')})"
+                    )
                     
                     if st.button("View Details"):
                         selected_entry = filtered_entries[selected_entry_idx]
@@ -1028,6 +1009,24 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                         if 'admin_comments' in selected_entry:
                             st.markdown("### Administrative Comments")
                             st.text(selected_entry.get('admin_comments', 'None provided'))
+                            
+                        # Add CSV download button
+                        if st.button("Download as CSV"):
+                            # Format the data for CSV
+                            csv_data = format_data_for_csv([selected_entry])
+                            
+                            # Convert to CSV string
+                            csv_buffer = StringIO()
+                            csv_data.to_csv(csv_buffer, index=False)
+                            
+                            # Create download button
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            st.download_button(
+                                label="Click to Download CSV",
+                                data=csv_buffer.getvalue(),
+                                file_name=f"entry_{timestamp}.csv",
+                                mime="text/csv"
+                            )
                 else:
                     st.info("No entries match the selected filters.")
             else:
@@ -1046,7 +1045,7 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
         
         with import_tab1:
             # Add file upload feature
-            uploaded_file = st.file_uploader("Upload Claims Excel File", type=['xlsx', 'xls'])
+            uploaded_file = st.file_uploader("Upload google forms data", type=['xlsx', 'xls'])
             
             if uploaded_file is not None:
                 try:
@@ -1097,14 +1096,14 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                 dos_from = pd.to_datetime(dos_from)
                                 dos_to = pd.to_datetime(dos_to)
                                 
-                                # Convert the date column to datetime (using original column name)
-                                date_column = claims_df.iloc[:, 8]  # Using column index instead of name
-                                claims_df.iloc[:, 8] = pd.to_datetime(date_column, errors='coerce')
+                                # Convert the date column to datetime (using correct column index)
+                                date_column = claims_df.iloc[:, 7]  # DATE OF SERVICE is at index 7
+                                claims_df.iloc[:, 7] = pd.to_datetime(date_column, errors='coerce')
                                 
                                 # Apply date filter
                                 filtered_df = claims_df[
-                                    (claims_df.iloc[:, 8].dt.date >= dos_from.date()) & 
-                                    (claims_df.iloc[:, 8].dt.date <= dos_to.date())
+                                    (claims_df.iloc[:, 7].dt.date >= dos_from.date()) & 
+                                    (claims_df.iloc[:, 7].dt.date <= dos_to.date())
                                 ].copy()
                                 
                                 # Reset index
@@ -1116,13 +1115,65 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                 st.write("Records matching selected date range:", filtered_df.shape[0])
                                 
                                 if not filtered_df.empty:
-                                    # Verify column counts match
-                                    if len(filtered_df.columns) == len(shortened_columns):
-                                        filtered_df.columns = shortened_columns
-                                        st.success(f"Successfully filtered {len(filtered_df)} claims within selected date range")
-                                        st.session_state.filtered_claims_df = filtered_df.copy()
-                                    else:
-                                        st.error(f"Column count mismatch: DataFrame has {len(filtered_df.columns)} columns, but {len(shortened_columns)} names provided")
+                                    # Get actual column names from the sheet
+                                    actual_columns = claims_df.columns.tolist()
+                                    
+                                    # Create a mapping of original to display names
+                                    display_names = {
+                                        'Id': 'ID',
+                                        'Start time': 'Start Time',
+                                        'Completion time': 'Completion Time',
+                                        'Email': 'Email',
+                                        'Name': 'Name',
+                                        'Is this a new note or an amendment to correct a previous note?': 'Note Type',
+                                        'REASON FOR FORM AMEDMENT': 'Amendment Reason',
+                                        'DATE OF SERVICE': 'DOS',
+                                        'Did you travel to/for client': 'Client Travel',
+                                        'TOTAL CLIENT TRAVEL TIME:  ENTER IN 15 MIN INCREMENTS USING DECIMALS': 'Travel Time',
+                                        'CLIENT TRAVEL DETAILS:': 'Travel Details',
+                                        'Type of Note': 'Note Category',
+                                        'Administrative Type': 'Admin Type',
+                                        'MEDICAID ID': 'Medicaid ID',
+                                        'MEMBER NAME': 'Member Name',
+                                        'MEMBER ID': 'Member ID',
+                                        'MEMBER DOB': 'Member DOB',
+                                        'TCM HOURS- ENTER IN 15 MIN INCREMENTS USING DECIMALS': 'TCM Hours',
+                                        'TCM UNITS': 'TCM Units',
+                                        'ICD 10': 'ICD 10',
+                                        'CPT CODE': 'CPT Code',
+                                        'TOTAL TRAVEL TIME': 'Total Travel',
+                                        'OUTLINE EACH DESTINATION TO AND FROM LOCATIONS': 'Travel Locations',
+                                        'ADDITIONAL COMMENTS': 'Comments',
+                                        'TRANSITION COORDINATION TASK COMPLETED': 'Tasks Done',
+                                        'NEXT STEPS/PLAN FOR FOLLOW UP': 'Next Steps',
+                                        'TYPE OF CONTACT': 'Contact Type',
+                                        'FULL NAME': 'Contact 1 Name',
+                                        'EMAIL1': 'Contact 1 Email',
+                                        'PHONE NUMBER': 'Contact 1 Phone',
+                                        'OUTCOME': 'Contact 1 Outcome',
+                                        'Do you have another contact to enter?': 'Add Contact 1',
+                                        'FULL NAME1': 'Contact 2 Name',
+                                        'EMAIL2': 'Contact 2 Email',
+                                        'PHONE NUMBER1': 'Contact 2 Phone',
+                                        'OUTCOME1': 'Contact 2 Outcome',
+                                        'DO YOU NEED TO ENTER ANOTHER CONTACT?': 'Add Contact 2',
+                                        'FULL NAME2': 'Contact 3 Name',
+                                        'EMAIL3': 'Contact 3 Email',
+                                        'PHONE NUMBER2': 'Contact 3 Phone',
+                                        'OUTCOME2': 'Contact 3 Outcome',
+                                        'DO YOU NEED TO ENTER ANOTHER CONTACT?1': 'Add Contact 3',
+                                        'FULL NAME3': 'Contact 4 Name',
+                                        'EMAIL4': 'Contact 4 Email',
+                                        'PHONE NUMBER3': 'Contact 4 Phone',
+                                        'OUTCOME3': 'Contact 4 Outcome',
+                                        'PLEASE ENTER ADMINISTRATIVE WORK COMPLETED': 'Admin Notes'
+                                    }
+                                    
+                                    # Rename columns using the mapping
+                                    filtered_df.columns = [display_names.get(col, col) for col in actual_columns]
+                                    
+                                    st.success(f"Successfully filtered {len(filtered_df)} claims within selected date range")
+                                    st.session_state.filtered_claims_df = filtered_df.copy()
                                 else:
                                     st.warning("No claims found within the selected date range")
                                     
@@ -1177,6 +1228,25 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                     )
                                 }
                             )
+                            
+                            # Add download button with formatted Excel
+                            if st.button("Download Table Data"):
+                                try:
+                                    output = BytesIO()
+                                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                                        format_excel_file(edited_df, writer, 'Claims Data')
+                                    
+                                    output.seek(0)
+                                    st.download_button(
+                                        label="Download Formatted Excel",
+                                        data=output.getvalue(),
+                                        file_name=f"claims_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Error creating Excel file: {str(e)}")
+                                    st.write("Error details:", traceback.format_exc())
+                            
                             # Update the session state with edited data
                             st.session_state.filtered_claims_df = edited_df
                         else:
@@ -1186,33 +1256,93 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                         st.markdown("#### Full Cleaned Claims Data")
                         st.markdown("Click 'Clean Data' to view the cleaned dataset.")
                         
-                        # Add Clean Data button inside data_tab2
+                        # Show cleaned data if it exists in session state
+                        if 'corrected_df' in st.session_state:
+                            st.write("Number of valid records:", st.session_state.corrected_df.shape[0])
+                            st.dataframe(st.session_state.corrected_df, use_container_width=True)
+                            
+                            # Create columns for download buttons
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                # Table Data download
+                                output = BytesIO()
+                                st.session_state.corrected_df.to_csv(output, index=False, encoding='utf-8-sig')
+                                output.seek(0)
+                                
+                                st.download_button(
+                                    label="Download Table Data",
+                                    data=output.getvalue(),
+                                    file_name=f"cleaned_data_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv"
+                                )
+                            
+                            with col2:
+                                # Formatted Excel download
+                                output_excel = BytesIO()
+                                with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                                    format_excel_file(st.session_state.corrected_df, writer, 'Cleaned Data')
+                                output_excel.seek(0)
+                                
+                                st.download_button(
+                                    label="Download Formatted Excel",
+                                    data=output_excel.getvalue(),
+                                    file_name=f"cleaned_data_formatted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                        
+                        # Add Clean Data button
                         if st.button("Clean Data", key="clean_data_btn"):
                             try:
                                 # Use filtered data if available
                                 data_to_clean = st.session_state.filtered_claims_df if st.session_state.filtered_claims_df is not None else st.session_state.claims_df
                                 
+                                # Debug: Show available columns
+                                # st.write("Available columns in data_to_clean:", data_to_clean.columns.tolist())
+                                
                                 # Load master database
                                 masterdf = pd.read_excel("./Master_db.xlsx", sheet_name='TCM')
                                 
                                 # Prepare master data - ensure all text columns are uppercase
-                                masterdf_selected = masterdf[['MEMBER ID', 'LAST NAME', 'FIRST NAME', 'MedicaidID', 'DOB']]
+                                masterdf_selected = masterdf.copy()
                                 masterdf_selected['FIRST NAME'] = masterdf_selected['FIRST NAME'].str.upper()
                                 masterdf_selected['LAST NAME'] = masterdf_selected['LAST NAME'].str.upper()
                                 
+                                # Clean column names by removing extra whitespace and newlines
+                                data_to_clean.columns = [col.strip().replace('\n', ' ').replace('\r', '') for col in data_to_clean.columns]
+                                
+                                # Debug: Show cleaned columns
+                                # st.write("Cleaned columns:", data_to_clean.columns.tolist())
+                                
                                 # Prepare claims data for cleaning - use the filtered claims_df
                                 df_selected = pd.DataFrame()
-                                df_selected['Member DOB'] = pd.to_datetime(data_to_clean['Member DOB'])
-                                df_selected['FIRST NAME'] = data_to_clean['Member Name'].str.split().str[0].str.upper()
-                                df_selected['LAST NAME'] = data_to_clean['Member Name'].str.split().str[-1].str.upper()
-                                df_selected['MEDICAID ID'] = data_to_clean['Medicaid ID']
-                                df_selected['MEMBER ID'] = data_to_clean['Member ID']
-                                df_selected['DOS'] = pd.to_datetime(data_to_clean['DOS'])
-                                df_selected['TCM Hours'] = data_to_clean['TCM Hours']
-                                df_selected['TCM Units'] = data_to_clean['TCM Units']
-                                df_selected['CPT Code'] = data_to_clean['CPT Code']
-                                df_selected['ICD 10'] = data_to_clean['ICD 10']
-                                df_selected['Name'] = data_to_clean['Name']
+                                
+                                try:
+                                    # Find TCM Hours and Units columns
+                                    tcm_hours_col = next((col for col in data_to_clean.columns if 'TCM HOURS' in col), None)
+                                    tcm_units_col = next((col for col in data_to_clean.columns if 'TCM UNITS' in col), None)
+                                    
+                                    if not tcm_hours_col or not tcm_units_col:
+                                        st.error(f"Missing columns: TCM Hours={tcm_hours_col is None}, TCM Units={tcm_units_col is None}")
+                                        st.write("Available columns:", data_to_clean.columns.tolist())
+                                        raise KeyError("TCM Hours or TCM Units column not found")
+                                    
+                                    # Map the columns
+                                    df_selected['Member DOB'] = pd.to_datetime(data_to_clean['Member DOB'])
+                                    df_selected['FIRST NAME'] = data_to_clean['Member Name'].str.split().str[0].str.upper()
+                                    df_selected['LAST NAME'] = data_to_clean['Member Name'].str.split().str[-1].str.upper()
+                                    df_selected['MEDICAID ID'] = data_to_clean['Medicaid ID']
+                                    df_selected['MEMBER ID'] = data_to_clean['Member ID']
+                                    df_selected['DOS'] = pd.to_datetime(data_to_clean['DOS'])
+                                    df_selected['TCM Hours'] = pd.to_numeric(data_to_clean[tcm_hours_col], errors='coerce')
+                                    df_selected['TCM Units'] = pd.to_numeric(data_to_clean[tcm_units_col], errors='coerce')
+                                    df_selected['CPT Code'] = data_to_clean['CPT Code']
+                                    df_selected['ICD 10'] = data_to_clean['ICD 10']
+                                    df_selected['Name'] = data_to_clean['Name']
+                                except KeyError as e:
+                                    st.error(f"Column not found: {str(e)}")
+                                    st.write("Available columns:", data_to_clean.columns.tolist())
+                                    raise
                                 
                                 # Store original data for comparison
                                 original_df = df_selected.copy()
@@ -1242,7 +1372,37 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
 
                                 st.dataframe(corrected_df_clean, use_container_width=True)
                                 
-                                # In your data cleaning section
+                                # Create columns for download buttons
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    # Table Data download
+                                    output = BytesIO()
+                                    corrected_df_clean.to_csv(output, index=False, encoding='utf-8-sig')
+                                    output.seek(0)
+                                    
+                                    st.download_button(
+                                        label="Download Table Data",
+                                        data=output.getvalue(),
+                                        file_name=f"cleaned_data_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                        mime="text/csv"
+                                    )
+                                
+                                with col2:
+                                    # Formatted Excel download
+                                    output_excel = BytesIO()
+                                    with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                                        format_excel_file(corrected_df_clean, writer, 'Cleaned Data')
+                                    output_excel.seek(0)
+                                    
+                                    st.download_button(
+                                        label="Download Formatted Excel",
+                                        data=output_excel.getvalue(),
+                                        file_name=f"cleaned_data_formatted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+                                
+                                # Store in session state
                                 st.session_state.corrected_df = corrected_df_clean
                                 
                             except Exception as e:
@@ -1251,6 +1411,42 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                     with data_tab3:
                         st.markdown("#### Run Claims")
                         st.markdown("Click 'Run Claims' to process and submit claims.")
+                        
+                        # Show processed claims if they exist in session state
+                        if 'processed_claims_df' in st.session_state:
+                            st.success("Claims processed successfully!")
+                            st.markdown("### Processed Claims Data")
+                            st.dataframe(st.session_state.processed_claims_df, use_container_width=True)
+                            
+                            # Create columns for download buttons
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                # Table Data download
+                                output = BytesIO()
+                                st.session_state.processed_claims_df.to_csv(output, index=False, encoding='utf-8-sig')
+                                output.seek(0)
+                                
+                                st.download_button(
+                                    label="Download Table Data",
+                                    data=output.getvalue(),
+                                    file_name=f"processed_claims_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv"
+                                )
+                            
+                            with col2:
+                                # Formatted Excel download
+                                output_excel = BytesIO()
+                                with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                                    format_excel_file(st.session_state.processed_claims_df, writer, 'Processed Claims')
+                                output_excel.seek(0)
+                                
+                                st.download_button(
+                                    label="Download Formatted Excel",
+                                    data=output_excel.getvalue(),
+                                    file_name=f"processed_claims_formatted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
                         
                         if st.button("Run Claims", key="run_claims_btn"):
                             try:
@@ -1284,7 +1480,7 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                         'rate': 26.75
                                     }
 
-                                    # Add static and calculated columns'
+                                    # Add static and calculated columns
                                     grouped_df['[Transaction Manager]'] = grouped_df['Name'].str.upper()
                                     grouped_df['[Claim Type]'] = 'Professional'
                                     grouped_df['[Payer]'] = 'Title XIX Payer'
@@ -1318,22 +1514,41 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                     grouped_df['[Check1_ReconUnits]'] = (grouped_df['[Hours]'] * 4) - grouped_df['[Units]']
                                     grouped_df['[Check1_ReconAmount]'] = (grouped_df['[Units]'] * grouped_df['[Rate]']) - grouped_df['[Charge Amount]']
 
+                                    # Store processed claims in session state
+                                    st.session_state.processed_claims_df = grouped_df
+
                                     # Display results
                                     st.success("Claims processed successfully!")
                                     st.markdown("### Processed Claims Data")
                                     st.dataframe(grouped_df, use_container_width=True)
-
-                                    # Add export functionality
-                                    if st.button("Export Processed Claims"):
+                                    
+                                    # Create columns for download buttons
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        # Table Data download
                                         output = BytesIO()
-                                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                            grouped_df.to_excel(writer, index=False, sheet_name='Processed Claims')
-                                        
+                                        grouped_df.to_csv(output, index=False, encoding='utf-8-sig')
                                         output.seek(0)
+                                        
                                         st.download_button(
-                                            label="Download Processed Claims",
+                                            label="Download Table Data",
                                             data=output.getvalue(),
-                                            file_name=f"processed_claims_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                            file_name=f"processed_claims_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                            mime="text/csv"
+                                        )
+                                    
+                                    with col2:
+                                        # Formatted Excel download
+                                        output_excel = BytesIO()
+                                        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+                                            format_excel_file(grouped_df, writer, 'Processed Claims')
+                                        output_excel.seek(0)
+                                        
+                                        st.download_button(
+                                            label="Download Formatted Excel",
+                                            data=output_excel.getvalue(),
+                                            file_name=f"processed_claims_formatted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                         )
                                 else:
@@ -1463,8 +1678,8 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                         )
                                         fig4.update_layout(height=400)
                                         st.plotly_chart(fig4, use_container_width=True)
-
-                                    # Original summary tables code continues here...
+                                    
+                                    # Manager Summary
                                     st.markdown("### Transaction Manager Summary")
                                     manager_summary = df.groupby('Name').agg({
                                         'TCM Hours': 'sum',
@@ -1482,7 +1697,7 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                     
                                     st.dataframe(manager_summary, use_container_width=True)
                                     
-                                    # 2. Transaction Manager per Member Details
+                                    # Transaction Manager per Member Details
                                     st.markdown("### Transaction Manager Details by Member")
                                     manager_member_details = df.groupby(['Name', 'MEDICAID ID']).agg({
                                         'TCM Hours': 'sum',
@@ -1497,7 +1712,7 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                     
                                     # Add member full name
                                     manager_member_details['Member Name'] = (manager_member_details['FIRST NAME'] + ' ' + 
-                                                                            manager_member_details['LAST NAME'])
+                                                                          manager_member_details['LAST NAME'])
                                     
                                     # Reorder and select columns
                                     manager_member_details = manager_member_details[[
@@ -1509,6 +1724,10 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                         lambda x: f"${x:,.2f}"
                                     )
                                     
+                                    # Store statistics in session state
+                                    st.session_state.manager_summary = manager_summary
+                                    st.session_state.manager_member_details = manager_member_details
+                                    
                                     # Display as expandable sections for each Transaction Manager
                                     for manager in sorted(df['Name'].unique()):
                                         with st.expander(f"🔍 {manager}"):
@@ -1517,34 +1736,40 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                                                 use_container_width=True
                                             )
                                     
-                                    # Export Statistics
-                                    if st.button("Export Statistics"):
+                                    # Create columns for download buttons
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        # Excel export
                                         output = BytesIO()
-                                        
                                         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                            # Manager Summary
-                                            manager_summary.to_excel(
-                                                writer, 
-                                                sheet_name='Manager Summary'
-                                            )
-                                            
-                                            # Manager Member Details
-                                            manager_member_details.to_excel(
-                                                writer, 
-                                                sheet_name='Manager Member Details'
-                                            )
-                                        
+                                            manager_summary.to_excel(writer, sheet_name='Manager Summary')
+                                            manager_member_details.to_excel(writer, sheet_name='Manager Member Details')
                                         output.seek(0)
+                                        
                                         st.download_button(
-                                            label="Download Statistics Report",
+                                            label="Download Statistics Report (Excel)",
                                             data=output.getvalue(),
                                             file_name=f"claims_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                         )
                                     
+                                    with col2:
+                                        # CSV export
+                                        csv_buffer = StringIO()
+                                        csv_buffer.write("Manager Summary\n")
+                                        manager_summary.to_csv(csv_buffer, encoding='utf-8-sig')
+                                        csv_buffer.write("\n\nManager Member Details\n")
+                                        manager_member_details.to_csv(csv_buffer, encoding='utf-8-sig')
+                                        
+                                        st.download_button(
+                                            label="Download Statistics Report (CSV)",
+                                            data=csv_buffer.getvalue(),
+                                            file_name=f"claims_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                            mime="text/csv"
+                                        )
                                 else:
                                     st.warning("Please clean the data first before generating statistics.")
-                                    
                             except Exception as e:
                                 st.error(f"Error generating statistics: {str(e)}")
                                 st.write("Error details:", str(e))
@@ -3319,4 +3544,144 @@ if st.session_state.duplicate_service_date_confirmed:
                 # Change navigation to Member Login
                 st.session_state.nav_selection = "Member Login"
                 st.rerun()
+
+def format_data_for_csv(entries):
+    """Format entries data for CSV export with proper formatting"""
+    formatted_data = []
+    for entry in entries:
+        flat_entry = {}
+        
+        # Basic information with date formatting
+        service_date = entry.get('service_date', '')
+        try:
+            if service_date:
+                service_date = pd.to_datetime(service_date).strftime('%m/%d/%Y')
+        except:
+            pass
+        flat_entry['Service Date'] = service_date
+        
+        flat_entry['Member Name'] = entry.get('member_name', '')
+        flat_entry['Medicaid ID'] = entry.get('medicaid_id', '')
+        
+        member_dob = entry.get('member_dob', '')
+        try:
+            if member_dob:
+                member_dob = pd.to_datetime(member_dob).strftime('%m/%d/%Y')
+        except:
+            pass
+        flat_entry['Member DOB'] = member_dob
+        
+        flat_entry['Note Category'] = entry.get('note_category', '')
+        flat_entry['Note Type'] = entry.get('note_type', '')
+        
+        # Time information with formatting
+        start_time = entry.get('start_time', '')
+        end_time = entry.get('end_time', '')
+        try:
+            if start_time:
+                start_time = pd.to_datetime(start_time).strftime('%I:%M %p')
+            if end_time:
+                end_time = pd.to_datetime(end_time).strftime('%I:%M %p')
+        except:
+            pass
+        flat_entry['Start Time'] = start_time
+        flat_entry['End Time'] = end_time
+        
+        # TCM information with number formatting
+        tcm_hours = entry.get('tcm_hours', 0)
+        tcm_units = entry.get('tcm_units', 0)
+        try:
+            tcm_hours = float(tcm_hours)
+            tcm_units = int(tcm_units)
+        except:
+            tcm_hours = 0
+            tcm_units = 0
+        flat_entry['TCM Hours'] = f"{tcm_hours:.2f}"
+        flat_entry['TCM Units'] = str(tcm_units)
+        flat_entry['CPT Code'] = entry.get('cpt_code', '')
+        flat_entry['ICD-10 Status'] = 'Yes' if entry.get('icd_10', False) else 'No'
+        
+        # Travel information with number formatting
+        flat_entry['Travel Required'] = entry.get('travel_to_client', 'No')
+        travel_time = entry.get('travel_time', 0)
+        try:
+            travel_time = float(travel_time)
+        except:
+            travel_time = 0
+        flat_entry['Travel Time'] = f"{travel_time:.2f}"
+        flat_entry['Travel Details'] = entry.get('travel_details', '')
+        flat_entry['Travel Locations'] = entry.get('travel_locations', '')
+        flat_entry['Travel Comments'] = entry.get('travel_comments', '')
+        
+        # Contact types
+        contact_types = entry.get('contact_types', [])
+        flat_entry['Contact Types'] = ', '.join(contact_types) if contact_types else ''
+        
+        # Tasks and Next Steps
+        flat_entry['Tasks Completed'] = entry.get('tasks_completed', '')
+        flat_entry['Next Steps'] = entry.get('next_steps', '')
+        
+        # Contact Information with better formatting
+        for i, contact_key in enumerate(['first_contact', 'second_contact', 'third_contact', 'fourth_contact']):
+            if contact_key in entry and isinstance(entry[contact_key], dict):
+                contact = entry[contact_key]
+                prefix = f"Contact {i+1}"
+                flat_entry[f"{prefix} Name"] = contact.get('contact_name', '')
+                flat_entry[f"{prefix} Email"] = contact.get('contact_email', '')
+                flat_entry[f"{prefix} Phone"] = contact.get('contact_phone', '')
+                flat_entry[f"{prefix} Outcome"] = contact.get('contact_outcome', '')
+            else:
+                prefix = f"Contact {i+1}"
+                flat_entry[f"{prefix} Name"] = ''
+                flat_entry[f"{prefix} Email"] = ''
+                flat_entry[f"{prefix} Phone"] = ''
+                flat_entry[f"{prefix} Outcome"] = ''
+        
+        # Administrative Comments and Type
+        flat_entry['Admin Type'] = entry.get('admin_type', '')
+        flat_entry['Admin Comments'] = entry.get('admin_comments', '')
+        
+        # Amendment information
+        flat_entry['Amendment Reason'] = entry.get('amendment_reason', '')
+        
+        # Timestamp
+        timestamp = entry.get('timestamp', '')
+        try:
+            if timestamp:
+                timestamp = pd.to_datetime(timestamp).strftime('%m/%d/%Y %I:%M:%S %p')
+        except:
+            pass
+        flat_entry['Timestamp'] = timestamp
+        
+        formatted_data.append(flat_entry)
     
+    # Create DataFrame and reorder columns for better readability
+    df = pd.DataFrame(formatted_data)
+    
+    # Define column order
+    column_order = [
+        'Timestamp', 'Service Date', 'Member Name', 'Medicaid ID', 'Member DOB',
+        'Note Category', 'Note Type', 'Start Time', 'End Time', 'TCM Hours',
+        'TCM Units', 'CPT Code', 'ICD-10 Status', 'Travel Required', 'Travel Time',
+        'Travel Details', 'Travel Locations', 'Travel Comments', 'Contact Types',
+        'Tasks Completed', 'Next Steps'
+    ]
+    
+    # Add contact columns
+    for i in range(1, 5):
+        column_order.extend([
+            f'Contact {i} Name', f'Contact {i} Email', f'Contact {i} Phone',
+            f'Contact {i} Outcome'
+        ])
+    
+    # Add remaining columns
+    column_order.extend([
+        'Admin Type', 'Admin Comments', 'Amendment Reason'
+    ])
+    
+    # Reorder columns and fill missing columns with empty strings
+    for col in column_order:
+        if col not in df.columns:
+            df[col] = ''
+    
+    return df[column_order]
