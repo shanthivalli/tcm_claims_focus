@@ -1,0 +1,393 @@
+/* Custom Streamlit Styles */
+
+.stApp {
+    background: white !important;
+    background-color: var(--background-color) !important;
+}
+
+/* Sidebar Background Color */
+.css-1d391kg, .css-1cypcdb, .stSidebar > div, [data-testid="stSidebar"] {
+    background-color: #223a44 !important; /* Change this color to your preference */
+}
+
+/* Sidebar content styling */
+.css-1d391kg .stButton > button, 
+.css-1cypcdb .stButton > button {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    color: white !important;
+    border: 1px solid #d7dce3f1  !important;
+}
+
+.css-1d391kg .stButton > button:hover,
+.css-1cypcdb .stButton > button:hover {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+    color: white !important;
+    border: 1px solid #d7dce3f1  !important;
+}
+
+/* Sidebar text color */
+.css-1d391kg,
+.css-1cypcdb,
+.stSidebar {
+    color: white !important;
+}
+
+/* Gradient Background Options (commented out for reference)
+.stApp {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
+}
+*/
+
+/* Light Background Options */
+:root {
+    --primary-color: #1f77b4;
+    --background-color: #f7f7ff;
+    --secondary-bg-color: #ffffff;
+    --text-color: #31333F;
+    --border-color: #000000;
+    --sidebar-bg-color: #2E86AB; /* Add sidebar color variable */
+}
+
+/* Button styling with uniform border */
+.stButton > button {
+    background-color: var(--primary-color);
+    color: white;
+    border: 1px solid #d7dce3f1  !important;
+    border-radius: 1px;
+    padding: 0.5rem 1rem;
+    transition: all 0.2s;
+}
+
+.stButton > button:hover {
+    background-color: #155d8d;
+    color: white;
+    border: 1px solid #d7dce3f1  !important;
+}
+
+/* Headers */
+h1, h2, h3, .main-title, .subheader {
+    color: var(--primary-color) !important;
+}
+
+/* Uniform border for all input, textarea, select, including disabled/read-only */
+.stTextInput > div > div > input,
+/* .stSelectbox > div > div > div, */
+div[data-baseweb="select"],
+div[data-baseweb="input"],
+[data-testid="stSelectbox"] > div > div,
+.stNumberInput > div > div > input,
+.stDateInput > div > div > input,
+.stTextInput > div > div > input:disabled,
+.stTextArea > div > div > textarea:disabled,
+/* .stSelectbox > div > div > div[disabled], */
+div[data-baseweb="select"] div[disabled],
+div[data-baseweb="input"] input:disabled,
+[data-testid="stSelectbox"] > div > div[disabled],
+.stNumberInput > div > div > input:disabled,
+.stDateInput > div > div > input:disabled {
+    border: 1px solid #d7dce3f1  !important;
+    border-radius: 1px !important;
+}
+
+.stTextArea > div > div > textarea{
+    border: 1px solid #535151f1 !important;
+    border-radius: 7px !important;
+}
+
+
+/* Success messages */
+.stSuccess {
+    background-color: #d4edda;
+    color: #155724;
+    border-color: #c3e6cb;
+}
+
+/* Warning messages */
+.stWarning {
+    background-color: #fff3cd;
+    color: #856404;
+    border-color: #ffeeba;
+}
+
+/* Error messages */
+.stError {
+    background-color: #f8d7da;
+    color: #721c24;
+    border-color: #f5c6cb;
+}
+
+/* Style for all non-editable fields */
+.stTextInput[disabled="true"] input,
+.stTextArea[disabled="true"] textarea,
+div[data-baseweb="input"] input:disabled,
+div[data-baseweb="textarea"] textarea:disabled,
+.stSelectbox[disabled="true"] div,
+.stMultiSelect[disabled="true"] div,
+.stDateInput[disabled="true"] input,
+.stTimeInput[disabled="true"] input,
+.stNumberInput[disabled="true"] input {
+    background-color: #F0F2F6 !important;
+    color: #000000 !important;
+    font-weight: 600 !important;
+    opacity: 1 !important;
+    cursor: not-allowed !important;
+}
+
+div[data-disabled="true"] {
+    opacity: 1 !important;
+}
+
+div[data-disabled="true"] label,
+.stTextInput[disabled="true"] label,
+.stSelectbox[disabled="true"] label,
+.stMultiSelect[disabled="true"] label,
+.stDateInput[disabled="true"] label,
+.stTimeInput[disabled="true"] label,
+.stNumberInput[disabled="true"] label {
+    color: #000000 !important;
+    font-weight: 500 !important;
+    opacity: 1 !important;
+}
+
+div[data-baseweb="select"] div[disabled] {
+    color: #000000 !important;
+    opacity: 1 !important;
+}
+
+.stTextInput input {
+    color: #000000 !important;
+    font-weight: 600 !important;
+    opacity: 1 !important;
+}
+
+.stTextInput label {
+    color: #000000 !important;
+    font-weight: 500 !important;
+}
+
+.step-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 10px 0;
+}
+
+.step {
+    width: 35px !important;
+    height: 35px !important;
+    border-radius: 50%;
+    background-color: steelblue;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: white;
+    position: relative;
+    font-size: 1rem !important;
+    border: 1px solid transparent;
+}
+
+.step.active {
+    background-color: cornflowerblue;
+    color: white;
+    border: 1px solid #FFFFFF;
+    box-shadow: 0 0 5px rgba(0,0,0,0.2);
+}
+
+.step.completed {
+    background-color: cornflowerblue;
+    color: white;
+}
+
+.step-line {
+    flex-grow: 1;
+    height: 2px;
+    background-color: rgb(123, 184, 215);
+    margin: 0 5px;
+}
+
+.step-line.completed {
+    background-color: lightseagreen;
+}
+
+.progress-text {
+    color: #1E1E1E;
+    font-weight: 600;
+    margin-top: 0.5rem;
+    text-align: center;
+}
+
+[data-testid="stDateInput"] input,
+div[data-baseweb="input"] input,
+input[key="member_dob"],
+div[data-baseweb="datepicker"] input {
+    color: #000000 !important;
+    font-weight: 600 !important;
+    -webkit-text-fill-color: #000000 !important;
+    opacity: 1 !important;
+}
+
+[data-testid="stDateInput"] input:disabled,
+div[data-baseweb="input"] input:disabled,
+input[key="member_dob"]:disabled {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-weight: 600 !important;
+    opacity: 1 !important;
+}
+
+[data-testid="stDateInput"],
+div[data-baseweb="datepicker"] {
+    opacity: 1 !important;
+}
+
+.stDateInput * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+}
+
+.stTextInput input,
+.stDateInput input,
+.stNumberInput input,
+.stTextArea textarea,
+div[data-baseweb="input"] input,
+div[data-baseweb="textarea"] textarea,
+div[data-baseweb="select"] div,
+.stSelectbox select,
+[data-testid="stDateInput"] input {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-weight: 600 !important;
+    opacity: 1 !important;
+}
+
+.stTextInput input:disabled,
+.stDateInput input:disabled,
+.stNumberInput input:disabled,
+.stTextArea textarea:disabled,
+div[data-baseweb="input"] input:disabled,
+div[data-baseweb="textarea"] textarea:disabled,
+div[data-baseweb="select"] div[disabled],
+.stSelectbox select:disabled,
+[data-testid="stDateInput"] input:disabled {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-weight: 600 !important;
+    opacity: 1 !important;
+}
+
+.stTextInput label,
+.stDateInput label,
+.stNumberInput label,
+.stTextArea label,
+.stSelectbox label,
+div[data-baseweb="input"] label,
+div[data-baseweb="select"] label {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-weight: 500 !important;
+    opacity: 1 !important;
+}
+
+.stRadio label,
+.stCheckbox label,
+.stRadio div,
+.stCheckbox div {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-weight: 500 !important;
+    opacity: 1 !important;
+}
+
+.stForm * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+}
+
+.stTextInput label,
+.stDateInput label,
+.stNumberInput label,
+.stTextArea label,
+.stSelectbox label,
+div[data-baseweb="input"] label,
+div[data-baseweb="select"] label,
+.stRadio label,
+.stCheckbox label,
+[data-testid="stFormSubmitButton"] label {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-weight: 600 !important;
+    font-size: 1.25rem !important;
+    opacity: 1 !important;
+    margin-bottom: 10px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+}
+
+.st-emotion-cache-1whx7iy p{
+    font-size: 16px !important;
+}
+
+.stTextInput label span,
+.stDateInput label span,
+.stNumberInput label span,
+.stTextArea label span,
+.stSelectbox label span {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-size: 1.25rem !important;
+    font-weight: 600 !important;
+}
+
+.stRadio > div:first-child,
+.stCheckbox > div:first-child {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    margin-bottom: 8px !important;
+}
+
+h2.subheader {
+    font-size: 1.3rem !important;
+    font-weight: 700 !important;
+    margin-bottom: 20px !important;
+    color: #000000 !important;
+}
+
+.section-number {
+    font-size: 1 rem !important;
+    font-weight: 600 !important;
+    color: #000000 !important;
+    margin-top: 15px !important;
+    margin-bottom: 10px !important;
+}
+
+.nav-arrow button {
+    background-color: transparent !important;
+    color: #007BFF !important;
+    border: none !important;
+    font-size: 2.5rem !important;
+    font-weight: bold !important;
+    padding: 0 !important;
+    line-height: 1;
+}
+
+.nav-arrow button:hover {
+    background-color: transparent !important;
+    color: #0056b3 !important;
+}
+
+.nav-arrow button:disabled {
+    color: #cccccc !important;
+    background-color: transparent !important;
+}
+
+.step-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 10px 0;
+}
+
+/* Add any additional custom styles below */
