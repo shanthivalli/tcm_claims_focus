@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, time as dt_time
 import traceback
 from io import BytesIO
 from openpyxl.styles import PatternFill, Font, Border, Side
@@ -16,7 +16,15 @@ from openpyxl.styles import NamedStyle, Font, PatternFill, Border, Side, Alignme
 from openpyxl.utils import get_column_letter
 import difflib
 import pytz
+from fpdf import FPDF
+import base64
 
+def entry_label(entry):
+                        member_name = entry.get('member_name') or entry.get('MEMBER NAME') or 'N/A'
+                        medicaid_id = entry.get('medicaid_id') or entry.get('MEDICAID ID') or 'N/A'
+                        service_date = entry.get('service_date') or entry.get('DATE OF SERVICE') or 'N/A'
+                        note_category = entry.get('note_category') or entry.get('Type of Note') or 'N/A'
+                        return f"{member_name} - {medicaid_id} | {service_date} | {note_category}"
 
 # Define all constants at the top
 TOTAL_SECTIONS = 8  # Updated to include the new demographic section
@@ -77,6 +85,21 @@ FORM_TO_REQUIRED_MAPPING = {
     "Id": "Id"
 }
 
+def dict_to_pdf(data: dict, title="Form Details"):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    page_width = pdf.w - 2 * pdf.l_margin  # Calculate usable page width
+    pdf.cell(page_width, 10, txt=title, ln=True, align='C')
+    pdf.ln(10)
+    for key, value in data.items():
+        line = f"{key}: {value}"
+        pdf.multi_cell(page_width, 10, line)
+    return pdf.output(dest='S').encode('latin1')
+
+
+
+
 def map_form_data_to_required_fields(form_data):
     """
     Map form data field names to required field names.
@@ -122,8 +145,8 @@ def map_form_data_to_required_fields(form_data):
             else:
                 mapped_entry[required_field] = value
         else:
-            # Set default values for missing fields
-            if required_field in ["Id", "Start time", "Completion time"]:
+            # Set default values for missing fields (but not for time fields)
+            if required_field in ["Id"]:
                 mapped_entry[required_field] = "none"
             elif required_field in ["MEMBER ID"]:
                 mapped_entry[required_field] = 0
@@ -131,13 +154,16 @@ def map_form_data_to_required_fields(form_data):
                 mapped_entry[required_field] = "none"
             elif required_field == "ICD 10":
                 mapped_entry[required_field] = "No"
+            elif required_field in ["Start time", "Completion time"]:
+                # Don't set default values for time fields - let them remain empty
+                mapped_entry[required_field] = ""
             else:
                 mapped_entry[required_field] = "none"
     
     # Ensure all required fields are present
     for field in REQUIRED_FIELDS:
         if field not in mapped_entry:
-            if field in ["Id", "Start time", "Completion time"]:
+            if field in ["Id"]:
                 mapped_entry[field] = "none"
             elif field in ["MEMBER ID"]:
                 mapped_entry[field] = 0
@@ -145,6 +171,9 @@ def map_form_data_to_required_fields(form_data):
                 mapped_entry[field] = "none"
             elif field == "ICD 10":
                 mapped_entry[field] = "No"
+            elif field in ["Start time", "Completion time"]:
+                # Don't set default values for time fields - let them remain empty
+                mapped_entry[field] = ""
             else:
                 mapped_entry[field] = "none"
     
@@ -206,6 +235,8 @@ if 'selected_service_date' not in st.session_state:
 def save_entries():
     """Save all log entries to a JSON file."""
     try:
+        # Remove automatic time setting - let users manually enter times
+        # Only save entries as they are, without modifying times
         with open('log_entries.json', 'w') as f:
             json.dump(st.session_state.log_entries, f, default=str, indent=4)
         return True
@@ -400,11 +431,19 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                 
                 # Filter by Medicaid ID
                 if selected_medicaid_id != "All":
-                    filtered_entries = [entry for entry in filtered_entries if entry.get('medicaid_id') == selected_medicaid_id]
+                    filtered_entries = [
+                        entry for entry in filtered_entries 
+                        if (entry.get('medicaid_id') == selected_medicaid_id or 
+                            entry.get('MEDICAID ID') == selected_medicaid_id)
+                    ]
                 
                 # Filter by note category
                 if selected_category != "All":
-                    filtered_entries = [entry for entry in filtered_entries if entry.get('note_category') == selected_category]
+                    filtered_entries = [
+                        entry for entry in filtered_entries 
+                        if (entry.get('note_category') == selected_category or
+                            entry.get('Type of Note') == selected_category)
+                    ]
                 
                 # Filter by date range
                 if len(date_range) == 2:
@@ -412,7 +451,10 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                     temp_filtered_entries = []
                     
                     for entry in filtered_entries:
-                        service_date_str = entry.get('service_date', '01/01/1900')
+                        # Try different field names for service date
+                        service_date_str = (entry.get('service_date') or 
+                                          entry.get('DATE OF SERVICE') or 
+                                          '01/01/1900')
                         try:
                             # Try mm/dd/yyyy format first
                             service_date = datetime.strptime(service_date_str, '%m/%d/%Y').date()
@@ -431,130 +473,130 @@ if st.session_state.nav_selection == "Admin" and st.session_state.is_admin:
                 
                 # Create a DataFrame for display
                 if filtered_entries:
-                    # Mapping from form variable names to display column names for admin view
-                    FORM_TO_DISPLAY_MAP = {
-                        "medicaid_id": "MEDICAID ID",
-                        "member_name": "MEMBER NAME",
-                        "member_id": "MEMBER ID",
-                        "member_dob": "MEMBER DOB",
-                        "note_type": "Is this a new note or amendment?",
-                        "service_date": "DATE OF SERVICE",
-                        "travel_to_client": "Did you travel to/for client?",
-                        "note_category": "Type of Note",
-                        "tc_name": "Name",
-                        "tc_email": "Email",
-                        "travel_time": "TOTAL CLIENT TRAVEL TIME",
-                        "travel_details": "CLIENT TRAVEL DETAILS",
-                        "admin_type": "ADMIN TYPE",
-                        "admin_comments": "ADDITIONAL COMMENTS",
-                        "total_travel_time": "TOTAL TRAVEL TIME",
-                        "travel_locations": "OUTLINE EACH DEST",
-                        "travel_comments": "TRAVEL COMMENTS",
-                        "tasks_completed": "TRANSITION COORDINATION TASK COMPLETED",
-                        "next_steps": "NEXT STEPS/PLAN FOR",
-                        "contact_types": "TYPE OF CONTACT",
-                        "tcm_hours": "TCM HOURS-ENTER",
-                        "tcm_units": "TCM UNITS/Minutes",
-                        "icd_10": "ICD 10",
-                        "cpt_code": "CPT CODE",
-                        "timestamp": "Timestamp"
-                    }
-                    display_columns = list(FORM_TO_DISPLAY_MAP.values())
-                    table_data = []
-                    for entry in filtered_entries:
-                        row = {FORM_TO_DISPLAY_MAP.get(k, k): v for k, v in entry.items() if k in FORM_TO_DISPLAY_MAP}
-                        # Ensure all columns are present
-                        for col in display_columns:
-                            if col not in row:
-                                row[col] = ""
-                        table_data.append(row)
-                    df = pd.DataFrame(table_data, columns=display_columns)
-                    st.dataframe(df, use_container_width=True)
-                    st.markdown("---")
+                    # Use entries as they are without patching times
+                    # Remove automatic time patching - let users manually enter times
+                    patched_entries = filtered_entries.copy()
 
-                    # Display entries list
-                    st.markdown("### Entries List")
-                    
-                    # Add view details functionality
+                    # Use the same desired order as the member table
+                    desired_order = [
+                        "Start time", "Completion time", "Email", "Name", "Is this a new note or amendment?", "REASON FOR AMENDMENT",
+                        "DATE OF SERVICE", "Did you travel to/for client?", "TOTAL CLIENT TRAVEL TIME", "CLIENT TRAVEL DETAILS",
+                        "TOTAL TRAVEL TIME", "OUTLINE EACH DEST", "ADDITIONAL COMMENTS", "TCM HOURS-ENTER", "TCM UNITS/Minutes",
+                        "ICD 10", "CPT CODE", "TRANSITION COORDINATION TASK COMPLETED", "NEXT STEPS/PLAN FOR", "TYPE OF CONTACT",
+                        "MEDICAID ID", "MEMBER NAME", "MEMBER ID", "MEMBER DOB"
+                    ]
+                    # Collect all unique keys from ALL entries in the JSON, not just filtered ones
+                    all_keys = set()
+                    for entry in log_entries:
+                        all_keys.update(entry.keys())
+                    # Add any extra columns at the end
+                    ordered_cols = desired_order + [col for col in all_keys if col not in desired_order]
+
+                    # Build table data
+                    def get_best_value(entry, col):
+                        # Try exact match
+                        if col in entry and entry[col] not in [None, '', [], {}]:
+                            return entry[col]
+                        # Try lower/underscore version
+                        alt_col = col.lower().replace(' ', '_')
+                        if alt_col in entry and entry[alt_col] not in [None, '', [], {}]:
+                            return entry[alt_col]
+                        # Try upper/space version
+                        alt_col2 = col.upper().replace('_', ' ')
+                        if alt_col2 in entry and entry[alt_col2] not in [None, '', [], {}]:
+                            return entry[alt_col2]
+                        return ''
+
+                    table_data = []
+                    for entry in patched_entries:
+                        row = {col: get_best_value(entry, col) for col in ordered_cols}
+                        table_data.append(row)
+
+                    # Replace empty string values with 'none' for display
+                    for row in table_data:
+                        for k, v in row.items():
+                            if v == "":
+                                row[k] = "none"
+
+                    # Format MEMBER DOB as MM/DD/YYYY for display
+                    for row in table_data:
+                        dob = row.get("MEMBER DOB", "") or row.get("member_dob", "")
+                        if dob and dob != "none":
+                            try:
+                                dob_dt = pd.to_datetime(dob)
+                                row["MEMBER DOB"] = dob_dt.strftime("%m/%d/%Y")
+                                row["member_dob"] = dob_dt.strftime("%m/%d/%Y")
+                            except Exception:
+                                pass
+
+                    df = pd.DataFrame(table_data, columns=ordered_cols)
+                    st.dataframe(df, use_container_width=True)
                     st.markdown("### View Form Details")
+
+                    # Build a readable label for each entry
+                    
                     selected_entry_idx = st.selectbox(
                         "Select a form to view details",
-                        options=range(len(filtered_entries)),
-                        format_func=lambda i: f"{filtered_entries[i].get('member_name', '')} - {filtered_entries[i].get('service_date', '')} ({filtered_entries[i].get('note_category', '')})"
+                        options=range(len(patched_entries)),
+                        format_func=lambda i: entry_label(patched_entries[i])
                     )
-                    
-                    if st.button("View Details"):
-                        selected_entry = filtered_entries[selected_entry_idx]
-                        
-                        # Display form details
-                        st.markdown("### Form Details")
-                        
-                        # Create two columns for basic info
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown(f"**Member Name:** {selected_entry.get('member_name', '')}")
-                            st.markdown(f"**Medicaid ID:** {selected_entry.get('medicaid_id', '')}")
-                            st.markdown(f"**Member ID:** {selected_entry.get('member_id', '')}")
-                        
-                        with col2:
-                            st.markdown(f"**Service Date:** {selected_entry.get('service_date', '')}")
-                            st.markdown(f"**Note Category:** {selected_entry.get('note_category', '')}")
-                            st.markdown(f"**Note Type:** {selected_entry.get('note_type', '')}")
-                        
-                        # Display TCM details if applicable
-                        if selected_entry.get('note_category') == "Billable- TCM":
-                            st.markdown("### TCM Details")
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.markdown(f"**TCM Hours:** {selected_entry.get('tcm_hours', 0)}")
-                                st.markdown(f"**TCM Units:** {selected_entry.get('tcm_units', 0)}")
-                            
-                            with col2:
-                                st.markdown(f"**ICD 10:** {'Yes' if selected_entry.get('icd_10', False) else 'No'}")
-                                st.markdown(f"**CPT Code:** {selected_entry.get('cpt_code', '')}")
-                        
-                        # Display travel details if applicable
-                        if selected_entry.get('travel_to_client') == "Yes":
-                            st.markdown("### Travel Details")
-                            st.markdown(f"**Travel Time:** {selected_entry.get('travel_time', 0)} hours")
-                            st.markdown(f"**Travel Locations:**")
-                            st.text(selected_entry.get('travel_details', 'None provided'))
-                        
-                        # Display tasks and next steps
-                        st.markdown("### Tasks and Next Steps")
-                        st.markdown("**Tasks Completed:**")
-                        st.text(selected_entry.get('tasks_completed', 'None provided'))
-                        
-                        st.markdown("**Next Steps:**")
-                        st.text(selected_entry.get('next_steps', 'None provided'))
-                        
-                        # Display contact information if available
-                        if 'first_contact' in selected_entry:
-                            st.markdown("### Contact Information")
-                            
-                            # First contact
-                            st.markdown("**First Contact:**")
-                            contact = selected_entry['first_contact']
-                            st.markdown(f"Name: {contact.get('contact_name', '')}")
-                            st.markdown(f"Email: {contact.get('contact_email', '')}")
-                            st.markdown(f"Phone: {contact.get('contact_phone', '')}")
-                            st.markdown(f"Outcome: {contact.get('contact_outcome', '')}")
-                            
-                            # Additional contacts
-                            for i, contact_key in enumerate(['second_contact', 'third_contact', 'fourth_contact']):
-                                if contact_key in selected_entry:
-                                    st.markdown(f"Name: {contact.get('contact_name', '')}")
-                                    st.markdown(f"Email: {contact.get('contact_email', '')}")
-                                    st.markdown(f"Phone: {contact.get('contact_phone', '')}")
-                                    st.markdown(f"Outcome: {contact.get('contact_outcome', '')}")
-                        
-                        # Display administrative comments
-                        if 'admin_comments' in selected_entry:
-                            st.markdown("### Administrative Comments")
-                            st.text(selected_entry.get('admin_comments', 'None provided'))
-                            
+
+                    # --- EDIT FEATURE START ---
+                    if 'admin_edit_idx' not in st.session_state:
+                        st.session_state.admin_edit_idx = None
+                    if 'edit_form_data' not in st.session_state:
+                        st.session_state.edit_form_data = None
+
+                    colA, colB = st.columns([1, 1])
+                    with colA:
+                        if st.button("View Details", key="view_details_btn"):
+                            selected_entry = patched_entries[selected_entry_idx]
+                            pdf_bytes = dict_to_pdf(selected_entry, title="Form Details")
+                            b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+                            pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="700" height="900" type="application/pdf"></iframe>'
+                            st.markdown(pdf_display, unsafe_allow_html=True)
+                            st.download_button(
+                                label="Download PDF",
+                                data=pdf_bytes,
+                                file_name="form_details.pdf",
+                                mime="application/pdf"
+                            )
+                    with colB:
+                        if st.button("Edit", key=f"edit_btn_{selected_entry_idx}"):
+                            st.session_state.admin_edit_idx = selected_entry_idx
+                            st.session_state.edit_form_data = patched_entries[selected_entry_idx].copy()
+                            st.rerun()
+
+                    # Show edit form if an entry is selected for editing
+                    if st.session_state.admin_edit_idx is not None:
+                        edit_idx = st.session_state.admin_edit_idx
+                        edit_data = st.session_state.get('edit_form_data', patched_entries[edit_idx].copy())
+                        member_name = edit_data.get('MEMBER NAME', edit_data.get('member_name', ''))
+                        medicaid_id = edit_data.get('MEDICAID ID', edit_data.get('medicaid_id', ''))
+                        st.markdown(f"### Edit Form Entry for: <span style='color:#1976d2'><b>{member_name}</b></span> (<span style='color:#1976d2'><b>{medicaid_id}</b></span>)", unsafe_allow_html=True)
+                        with st.form("admin_edit_form"):
+                            updated_data = {}
+                            for field in ordered_cols:
+                                val = edit_data.get(field, "")
+                                updated_data[field] = st.text_input(field, value=str(val) if val is not None else "", key=f"edit_{field}")
+                            submitted = st.form_submit_button("Save Changes")
+                            if submitted:
+                                # Save in REQUIRED_FIELDS order, then extras
+                                new_entry = {field: updated_data.get(field, "") for field in desired_order}
+                                for field in ordered_cols:
+                                    if field not in desired_order:
+                                        new_entry[field] = updated_data.get(field, "")
+                                st.session_state.log_entries[edit_idx] = new_entry
+                                save_entries()
+                                st.success("Entry updated successfully!")
+                                st.session_state.admin_edit_idx = None
+                                st.session_state.edit_form_data = None
+                                st.rerun()
+                        if st.button("Cancel Edit", key="cancel_edit_btn"):
+                            st.session_state.admin_edit_idx = None
+                            st.session_state.edit_form_data = None
+                            st.rerun()
+                    # --- EDIT FEATURE END ---
                 else:
                     st.info("No entries match the selected filters.")
             else:
@@ -577,8 +619,6 @@ if st.session_state.nav_selection == "Member Login":
     # Clear admin-specific session state if needed
     st.session_state.is_admin = False
     st.session_state.admin_selection = None
-    
-    # st.markdown('<h1 class="main-title">Member Login</h1>', unsafe_allow_html=True)
     
     # Only show login form if not already verified
     if not st.session_state.member_verified:
@@ -649,8 +689,8 @@ if st.session_state.nav_selection == "Member Login":
                                     # Reset service date check flag
                                     st.session_state.service_date_checked = False
                                     st.session_state.duplicate_service_date_confirmed = False
-                                    # Automatically redirect to form page
-                                    st.session_state.nav_selection = "Form"
+                                    # Set default tab to Home
+                                    st.session_state.member_tab = "Home"
                                     st.rerun()
                                 else:
                                     st.error("Invalid password. Please try again.")
@@ -695,622 +735,755 @@ if st.session_state.nav_selection == "Member Login":
                                     st.session_state.service_date_checked = False
                                     st.session_state.duplicate_service_date_confirmed = False
                                     
-                                    # Automatically redirect to form page
-                                    st.session_state.nav_selection = "Form"
+                                    # Set default tab to Home
+                                    st.session_state.member_tab = "Home"
                                     st.rerun()
                         except Exception as e:
                             st.error(f"Error during login: {str(e)}")
                             print(f"Error during login: {str(e)}")  # Debug log
     else:
-        # If already verified, redirect to form page
-        st.session_state.nav_selection = "Form"
-        st.rerun()
-
-# Create a new navigation option for the form
-elif st.session_state.nav_selection == "Form":
-    # Only allow access if member is verified
-    if not st.session_state.member_verified:
-        st.warning("Please login first to access the form.")
-        st.session_state.nav_selection = "Member Login"
-        st.rerun()
-    
-    # Check for existing records with the same service date
-    if not st.session_state.service_date_checked:
-        with st.form("service_date_form"):
-            service_date = st.date_input("Please enter the service date for this form", format="MM/DD/YYYY")
-            submit_date = st.form_submit_button("Continue")
-            
-            if submit_date:
-                # Check if there are existing records with the same service date and medicaid ID
-                try:
-                    with open('log_entries.json', 'r') as f:
-                        all_entries = json.load(f)
-                    
-                    # Convert service_date to string for comparison
-                    service_date_str = service_date.strftime("%Y-%m-%d")
-                    medicaid_id = st.session_state.member_data.get('medicaid_id', '')
-                    
-                    # Find entries with matching service date and medicaid ID
-                    matching_entries = [
-                        entry for entry in all_entries 
-                        if entry.get('DATE OF SERVICE') == service_date_str and 
-                           entry.get('MEDICAID ID') == medicaid_id
-                    ]
-                    
-                    if matching_entries:
-                        # Store the service date in session state and mark as checked but not confirmed
-                        st.session_state.selected_service_date = service_date
-                        st.session_state.service_date_checked = True
-                        st.session_state.duplicate_service_date_confirmed = False  # Explicitly set to False
-                        st.rerun()  # Rerun to show confirmation dialog
-                    else:
-                        # No matching entries, proceed with form
-                        st.session_state.service_date_checked = True
-                        st.session_state.duplicate_service_date_confirmed = True
-                        # Store the service date for later use
-                        st.session_state.selected_service_date = service_date
-                        st.rerun()
-                except (FileNotFoundError, json.JSONDecodeError):
-                    # No existing entries file or invalid JSON
-                    st.session_state.service_date_checked = True
-                    st.session_state.duplicate_service_date_confirmed = True
-                    # Store the service date for later use
-                    st.session_state.selected_service_date = service_date
-                    st.rerun()
-    
-    # Show confirmation dialog if duplicate service date found and not yet confirmed
-    elif st.session_state.service_date_checked and not st.session_state.duplicate_service_date_confirmed:
-        # Add a more prominent warning message
-        st.markdown("### ⚠️ Duplicate Service Date Detected")
-        st.warning(f"**There are already entries for {st.session_state.selected_service_date.strftime('%m/%d/%Y')} for this member.**")
-        st.info("Please confirm if you want to continue with this date or choose a different one.")
+        # If already verified, show the member dashboard with tabs
+        # Initialize member tab if not set
+        if 'member_tab' not in st.session_state:
+            st.session_state.member_tab = "Home"
         
-        col1, col2 = st.columns(2)
+        # Add logout button at the top
+        col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
-            if st.button("✅ Yes, continue with this date", type="primary", use_container_width=True):
-                st.session_state.duplicate_service_date_confirmed = True
-                st.rerun()
-        with col2:
-            if st.button("🔄 No, choose a different date", type="secondary", use_container_width=True):
+            # Welcome message
+            member_name = st.session_state.member_data.get('member_name', 'Member')
+            st.markdown(f"### Welcome, {member_name}! 👋")
+        # Remove the Switch Tab button
+        with col3:
+            if st.button("Logout", use_container_width=True, type="secondary"):
+                # Reset all member-related session stateswh
+                st.session_state.member_verified = False
+                st.session_state.member_data = {}
+                st.session_state.form_data = {}
+                st.session_state.current_section = 0
                 st.session_state.service_date_checked = False
                 st.session_state.duplicate_service_date_confirmed = False
+                st.session_state.member_tab = "Home"
                 st.rerun()
-    
-    # Only show progress bar for non-Administrative notes
-    elif st.session_state.duplicate_service_date_confirmed:
+        
+        # Create tabs for member dashboard
+        tab1, tab2 = st.tabs(["🏠 Home", "📝 New Form"])
 
-        # Create the progress steps
-        def create_progress_bar(current_section, total_sections=TOTAL_SECTIONS):
-            html = '<div class="step-container">'
-            for i in range(total_sections):  # Changed from 1 to 0-based indexing
-                if i < current_section:
-                    html += f'<div class="step completed">{i}</div>'
-                elif i == current_section:
-                    html += f'<div class="step active">{i}</div>'
+        # --- Reset form state if switching to New Form tab ---
+        if 'last_member_tab' not in st.session_state:
+            st.session_state.last_member_tab = st.session_state.member_tab
+        if st.session_state.member_tab != st.session_state.last_member_tab:
+            if st.session_state.member_tab == "New Form":
+                st.session_state.current_section = 0
+                st.session_state.form_data = {}
+                st.session_state.service_date_checked = False
+                st.session_state.duplicate_service_date_confirmed = False
+                st.session_state.selected_service_date = None
+            st.session_state.last_member_tab = st.session_state.member_tab
+        # ------------------------------------------------------
+        
+        with tab1:
+            st.markdown('<h2 class="subheader">My Submitted Forms</h2>', unsafe_allow_html=True)
+            
+            # Load log entries
+            try:
+                with open('log_entries.json', 'r') as f:
+                    log_entries = json.load(f)
+                
+                # Filter entries for current member
+                current_medicaid_id = st.session_state.member_data.get('medicaid_id', '')
+                member_entries = [
+                    entry for entry in log_entries 
+                    if (entry.get('medicaid_id') == current_medicaid_id or 
+                        entry.get('MEDICAID ID') == current_medicaid_id)
+                ]
+                
+                # Use entries as they are without patching times
+                # Remove automatic time patching - let users manually enter times
+                patched_entries = member_entries.copy()
+                
+                if patched_entries:
+                    # Dynamically get all columns from all entries
+                    all_columns = set()
+                    for entry in patched_entries:
+                        all_columns.update(entry.keys())
+                    all_columns = sorted(list(all_columns))
+                    
+                    # Define the desired column order
+                    desired_order = [
+                        "Start time", "Completion time", "Email", "Name", "Is this a new note or amendment?", "REASON FOR AMENDMENT",
+                        "DATE OF SERVICE", "Did you travel to/for client?", "TOTAL CLIENT TRAVEL TIME", "CLIENT TRAVEL DETAILS",
+                        "TOTAL TRAVEL TIME", "OUTLINE EACH DEST", "ADDITIONAL COMMENTS", "TCM HOURS-ENTER", "TCM UNITS/Minutes",
+                        "ICD 10", "CPT CODE", "TRANSITION COORDINATION TASK COMPLETED", "NEXT STEPS/PLAN FOR", "TYPE OF CONTACT",
+                        "MEDICAID ID", "MEMBER NAME", "MEMBER ID", "MEMBER DOB"
+                    ]
+                    # Add any extra columns at the end
+                    all_columns = desired_order + [col for col in all_columns if col not in desired_order]
+                    # Create DataFrame with ordered columns
+                    df = pd.DataFrame(patched_entries, columns=all_columns)
+                    st.dataframe(df, use_container_width=True)
+                    
+                    # Add view details functionality
+                    st.markdown("### View Form Details")
+                    selected_entry_idx = st.selectbox(
+                        "Select a form to view details",
+                        options=range(len(patched_entries)),
+                        format_func=lambda i: entry_label(patched_entries[i])
+                    )
+                    
+                    if st.button("View Details"):
+                        selected_entry = patched_entries[selected_entry_idx]
+                        pdf_bytes = dict_to_pdf(selected_entry, title="Form Details")
+                        b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+                        pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="700" height="900" type="application/pdf"></iframe>'
+                        st.markdown(pdf_display, unsafe_allow_html=True)
+                        st.download_button(
+                            label="Download PDF",
+                            data=pdf_bytes,
+                            file_name="form_details.pdf",
+                            mime="application/pdf"
+                        )
                 else:
-                    html += f'<div class="step">{i}</div>'
+                    st.info("No forms submitted yet.")
+                    
+                    # # Add a button to create a new form
+                    # col1, col2, col3 = st.columns([1, 2, 1])
+                    # with col2:
+                    #     if st.button("Create Your First Form", type="primary", use_container_width=True):
+                    #         st.session_state.member_tab = "New Form"
+                    #         st.rerun()
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                st.info(f"No forms found. Error: {str(e)}")
                 
-                if i < total_sections - 1:  # Changed condition for last step
-                    if i < current_section:
-                        html += '<div class="step-line completed"></div>'
-                    else:
-                        html += '<div class="step-line"></div>'
-            html += '</div>'
-            return html
-
-        # Only show progress bar for non-Administrative notes
-        if st.session_state.get('form_data', {}).get('note_category') != "Administrative":
-            # Progress bar with custom styling
-            st.markdown(create_progress_bar(st.session_state.current_section), unsafe_allow_html=True)
-            # st.markdown(f'<p class="progress-text">Section {st.session_state.current_section} of {TOTAL_SECTIONS}</p>', unsafe_allow_html=True)
-            
-            # Add Previous/Next navigation
-            prev_next_cols = st.columns([1, 8, 1]) # Adjust column ratios
-            with prev_next_cols[0]:
-                st.markdown('<div class="nav-arrow">', unsafe_allow_html=True)
-                if st.button("←", 
-                            disabled=st.session_state.current_section == 0,
-                            use_container_width=True,
-                            key="prev_button"):
-                    st.session_state.current_section = max(0, st.session_state.current_section - 1)
-                    st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-            
-            with prev_next_cols[2]:
-                st.markdown('<div class="nav-arrow">', unsafe_allow_html=True)
-                if st.button("→", 
-                            disabled=st.session_state.current_section == TOTAL_SECTIONS - 1,
-                            use_container_width=True,
-                            key="next_button"):
-                    st.session_state.current_section = min(TOTAL_SECTIONS - 1, st.session_state.current_section + 1)
-                    st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
+                # # Add a button to create a new form
+                # col1, col2, col3 = st.columns([1, 2, 1])
+                # with col2:
+                #     if st.button("Create Your First Form", type="primary", use_container_width=True):
+                #         st.session_state.member_tab = "New Form"
+                #         st.rerun()
         
-        # Before the form, check if we need to set a note category
-        if 'note_category' not in st.session_state:
-            st.session_state.note_category = "Billable- TCM"  # Default value
-        
-        medicaid_id = st.session_state.member_data.get('medicaid_id', '')
-                
-        # Get member details if available
-        member_details = st.session_state.member_data
-
-        # Section 0 (Demographics) - NEW SECTION
-        if st.session_state.current_section == 0:
-            # st.markdown('<h2 class="subheader">DEMOGRAPHICS</h2>', unsafe_allow_html=True)
+        with tab2:
+            st.markdown('<h2 class="subheader">Create New Form</h2>', unsafe_allow_html=True)
             
-            with st.form("demographics_form"):
-                # Row 1: Medicaid ID and Member Name
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.text_input(
-                        "MEDICAID ID *",
-                        value=medicaid_id,
-                        disabled=True,
-                        key="medicaid_id_display"
-                    )
-                with col2:
-                    st.text_input(
-                        "MEMBER NAME *",
-                        value=member_details.get('member_name', ''),
-                        disabled=True,
-                        key="member_name_display"
-                    )
-                
-                # Row 2: Member DOB and Member ID
-                col1, col2 = st.columns(2)
-                with col1:
-                    # Handle DOB properly
-                    try:
-                        if 'member_dob' in member_details and member_details['member_dob']:
-                            if isinstance(member_details['member_dob'], (str, datetime, date)):
-                                dob_value = pd.to_datetime(member_details['member_dob']).date()
+            # Check for existing records with the same service date
+            if not st.session_state.service_date_checked:
+                with st.form("service_date_form"):
+                    service_date = st.date_input("Please enter the service date for this form", format="MM/DD/YYYY")
+                    submit_date = st.form_submit_button("Continue")
+                    
+                    if submit_date:
+                        # Check if there are existing records with the same service date and medicaid ID
+                        try:
+                            with open('log_entries.json', 'r') as f:
+                                all_entries = json.load(f)
+                            
+                            # Convert service_date to MM/DD/YYYY string for comparison
+                            service_date_str = service_date.strftime("%m/%d/%Y")
+                            medicaid_id = st.session_state.member_data.get('medicaid_id', '')
+                            
+                            # Find entries with matching service date and medicaid ID
+                            matching_entries = [
+                                entry for entry in all_entries 
+                                if (entry.get('DATE OF SERVICE') == service_date_str or 
+                                    entry.get('service_date') == service_date_str) and 
+                                   (entry.get('MEDICAID ID') == medicaid_id or
+                                    entry.get('medicaid_id') == medicaid_id)
+                            ]
+                            
+                            if matching_entries:
+                                # Store the service date in session state and mark as checked but not confirmed
+                                st.session_state.selected_service_date = service_date
+                                st.session_state.service_date_checked = True
+                                st.session_state.duplicate_service_date_confirmed = False  # Explicitly set to False
+                                st.rerun()  # Rerun to show confirmation dialog
                             else:
-                                dob_str = str(member_details['member_dob'])
-                                if dob_str and dob_str.lower() != 'nan':
-                                    dob_value = pd.to_datetime(dob_str).date()
+                                # No matching entries, proceed with form
+                                st.session_state.service_date_checked = True
+                                st.session_state.duplicate_service_date_confirmed = True
+                                # Store the service date for later use
+                                st.session_state.selected_service_date = service_date
+                                st.rerun()
+                        except (FileNotFoundError, json.JSONDecodeError):
+                            # No existing entries file or invalid JSON
+                            st.session_state.service_date_checked = True
+                            st.session_state.duplicate_service_date_confirmed = True
+                            # Store the service date for later use
+                            st.session_state.selected_service_date = service_date
+                            st.rerun()
+            
+            # Show confirmation dialog if duplicate service date found and not yet confirmed
+            elif st.session_state.service_date_checked and not st.session_state.duplicate_service_date_confirmed:
+                # Add a more prominent warning message
+                st.markdown("### ⚠️ Duplicate Service Date Detected")
+                st.warning(f"**There are already entries for {st.session_state.selected_service_date.strftime('%m/%d/%Y')} for this member.**")
+                st.info("Please confirm if you want to continue with this date or choose a different one.")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ Yes, continue with this date", type="primary", use_container_width=True):
+                        st.session_state.duplicate_service_date_confirmed = True
+                        st.rerun()
+                with col2:
+                    if st.button("🔄 No, choose a different date", type="secondary", use_container_width=True):
+                        st.session_state.service_date_checked = False
+                        st.session_state.duplicate_service_date_confirmed = False
+                        st.rerun()
+            
+            # Only show progress bar for non-Administrative notes
+            elif st.session_state.duplicate_service_date_confirmed:
+                # Create the progress steps
+                def create_progress_bar(current_section, total_sections=TOTAL_SECTIONS):
+                    html = '<div class="step-container">'
+                    for i in range(total_sections):  # Changed from 1 to 0-based indexing
+                        if i < current_section:
+                            html += f'<div class="step completed">{i}</div>'
+                        elif i == current_section:
+                            html += f'<div class="step active">{i}</div>'
+                        else:
+                            html += f'<div class="step">{i}</div>'
+                        
+                        if i < total_sections - 1:  # Changed condition for last step
+                            if i < current_section:
+                                html += '<div class="step-line completed"></div>'
+                            else:
+                                html += '<div class="step-line"></div>'
+                    html += '</div>'
+                    return html
+
+                # Only show progress bar for non-Administrative notes
+                if st.session_state.get('form_data', {}).get('note_category') != "Administrative":
+                    # Progress bar with custom styling
+                    st.markdown(create_progress_bar(st.session_state.current_section), unsafe_allow_html=True)
+                    # st.markdown(f'<p class="progress-text">Section {st.session_state.current_section} of {TOTAL_SECTIONS}</p>', unsafe_allow_html=True)
+                    
+                    # Add Previous/Next navigation
+                    prev_next_cols = st.columns([1, 8, 1]) # Adjust column ratios
+                    with prev_next_cols[0]:
+                        st.markdown('<div class="nav-arrow">', unsafe_allow_html=True)
+                        if st.button("←", 
+                                    disabled=st.session_state.current_section == 0,
+                                    use_container_width=True,
+                                    key="prev_button"):
+                            st.session_state.current_section = max(0, st.session_state.current_section - 1)
+                            st.rerun()
+                        st.markdown('</div>', unsafe_allow_html=True)
+                    
+                    with prev_next_cols[2]:
+                        st.markdown('<div class="nav-arrow">', unsafe_allow_html=True)
+                        if st.button("→", 
+                                    disabled=st.session_state.current_section == TOTAL_SECTIONS - 1,
+                                    use_container_width=True,
+                                    key="next_button"):
+                            st.session_state.current_section = min(TOTAL_SECTIONS - 1, st.session_state.current_section + 1)
+                            st.rerun()
+                        st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Before the form, check if we need to set a note category
+                if 'note_category' not in st.session_state:
+                    st.session_state.note_category = "Billable- TCM"  # Default value
+                
+                medicaid_id = st.session_state.member_data.get('medicaid_id', '')
+                        
+                # Get member details if available
+                member_details = st.session_state.member_data
+
+                # Section 0 (Demographics) - NEW SECTION
+                if st.session_state.current_section == 0:
+                    # st.markdown('<h2 class="subheader">DEMOGRAPHICS</h2>', unsafe_allow_html=True)
+                    
+                    with st.form("demographics_form"):
+                        # Row 1: Medicaid ID and Member Name
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.text_input(
+                                "MEDICAID ID *",
+                                value=medicaid_id,
+                                disabled=True,
+                                key="medicaid_id_display"
+                            )
+                        with col2:
+                            st.text_input(
+                                "MEMBER NAME *",
+                                value=member_details.get('member_name', ''),
+                                disabled=True,
+                                key="member_name_display"
+                            )
+                        
+                        # Row 2: Member DOB and Member ID
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            # Handle DOB properly
+                            try:
+                                if 'member_dob' in member_details and member_details['member_dob']:
+                                    if isinstance(member_details['member_dob'], (str, datetime, date)):
+                                        dob_value = pd.to_datetime(member_details['member_dob']).date()
+                                    else:
+                                        dob_str = str(member_details['member_dob'])
+                                        if dob_str and dob_str.lower() != 'nan':
+                                            dob_value = pd.to_datetime(dob_str).date()
+                                        else:
+                                            dob_value = datetime.now().date()
                                 else:
                                     dob_value = datetime.now().date()
-                        else:
-                            dob_value = datetime.now().date()
+                                
+                                st.date_input(
+                                    "MEMBER DOB *",
+                                    value=dob_value,
+                                    disabled=True,
+                                    key="member_dob_display",
+                                    format="MM/DD/YYYY"
+                                )
+                            except Exception as e:
+                                st.error(f"Error processing date of birth: {str(e)}")
+                                # Fallback to current date
+                                st.date_input(
+                                    "MEMBER DOB *",
+                                    value=datetime.now().date(),
+                                    disabled=True,
+                                    key="member_dob_display_fallback",
+                                    format="MM/DD/YYYY"
+                                )
+                        with col2:
+                            st.text_input(
+                                "MEMBER ID", 
+                                value=str(int(float(member_details.get('member_id', 0)))),  # Convert to int to remove decimal points
+                                disabled=True,
+                                key="member_id_display", 
+                                help="Member ID must be a numerical value"
+                            )
                         
+                        # Row 3: Transition Coordinator Name and Email
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.text_input("Transition Coordinator Name", value=member_details.get('tc_name', ''), disabled=True)
+                        with col2:
+                            st.text_input("Transition Coordinator Email", value=member_details.get('tc_email', ''), disabled=True)
+                        
+                        # Row 4: Service Date
                         st.date_input(
-                            "MEMBER DOB *",
-                            value=dob_value,
+                            "DATE OF SERVICE", 
+                            value=st.session_state.selected_service_date,
                             disabled=True,
-                            key="member_dob_display",
                             format="MM/DD/YYYY"
                         )
-                    except Exception as e:
-                        st.error(f"Error processing date of birth: {str(e)}")
-                        # Fallback to current date
-                        st.date_input(
-                            "MEMBER DOB *",
-                            value=datetime.now().date(),
-                            disabled=True,
-                            key="member_dob_display_fallback",
-                            format="MM/DD/YYYY"
+                        # REMOVED START TIME FROM SECTION 0
+                        # Add Next button
+                        submitted = st.form_submit_button("Next")
+                        if submitted:
+                            # Move to next section
+                            st.session_state.current_section = 1
+                            st.rerun()
+
+                # Only show note type selection in section 1
+                elif st.session_state.current_section == 1:
+                    # Create a container outside the form to handle note type selection
+                    note_type_container = st.container()
+                    with note_type_container:
+                        
+                        # Default values
+                        start_time_val = st.session_state.get('form_data', {}).get('start_time', dt_time(9, 0))
+                        end_time_val = st.session_state.get('form_data', {}).get('end_time', dt_time(17, 0))
+
+                        # Ensure form_data exists in session_state
+                        if 'form_data' not in st.session_state:
+                            st.session_state.form_data = {}
+
+                        # Time input widgets
+                        
+                        temp_note_category = st.radio(
+                            "**[1] Type of Note**", 
+                            ["Administrative", "Billable- TCM"],
+                            index=0 if st.session_state.note_category == "Administrative" else 1,
+                            key="note_category_selector",  # Use a different key
+                            horizontal=True  # Display options horizontally
                         )
-                with col2:
-                    st.text_input(
-                        "MEMBER ID", 
-                        value=str(int(float(member_details.get('member_id', 0)))),  # Convert to int to remove decimal points
-                        disabled=True,
-                        key="member_id_display", 
-                        help="Member ID must be a numerical value"
-                    )
-                
-                # Row 3: Transition Coordinator Name and Email
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.text_input("Transition Coordinator Name", value=member_details.get('tc_name', ''), disabled=True)
-                with col2:
-                    st.text_input("Transition Coordinator Email", value=member_details.get('tc_email', ''), disabled=True)
-                
-                # Row 4: Service Date and Times
-                st.date_input(
-                    "DATE OF SERVICE", 
-                    value=st.session_state.selected_service_date,
-                    disabled=True,
-                    format="MM/DD/YYYY"
-                )
-
-                if 'start_time' not in st.session_state.form_data:
-                    st.session_state.form_data['start_time'] = datetime.now(pytz.timezone('US/Eastern')).time()
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.text_input("START TIME (EST)", value=st.session_state.form_data['start_time'].strftime("%H:%M"), disabled=True)
-                with col2:
-                    st.text_input("END TIME (EST)", value="Captured on submit", disabled=True)
-                
-                # Add Next button
-                submitted = st.form_submit_button("Next")
-                if submitted:
-                    # Move to next section
-                    st.session_state.current_section = 1
-                    st.rerun()
-
-        # Only show note type selection in section 1
-        elif st.session_state.current_section == 1:
-            # Create a container outside the form to handle note type selection
-            note_type_container = st.container()
-            with note_type_container:
-                # Note type selection outside the form
-
-                temp_note_category = st.radio(
-                    "**[1] Type of Note**", 
-                    ["Administrative", "Billable- TCM"],
-                    index=0 if st.session_state.note_category == "Administrative" else 1,
-                    key="note_category_selector",  # Use a different key
-                    horizontal=True  # Display options horizontally
-                )
-                
-                # Update session state when selection changes
-                if temp_note_category != st.session_state.note_category:
-                    st.session_state.note_category = temp_note_category
-                    # Reset form data when changing note type
-                    if 'form_data' in st.session_state:
-                        st.session_state.form_data = {}
-                    st.rerun()
-            
-            # Inside the forms
-            if st.session_state.note_category == "Administrative":
-                # Administrative form
-                # Get medicaid_id from session state
-               
-
-                # st.markdown('<p class="section-number">1.1)</p>', unsafe_allow_html=True)
-                note_type = st.radio(
-                    "[2] Is this a new note or an amendment to correct a previous note?",
-                    ["New Note", "Amendment"],
-                    key="admin_note_type"
-                )
-                travel_to_client = st.radio("[3] DID YOU TRAVEL TO/FOR CLIENT", ["Yes", "No"], index=1, key="admin_travel_radio_2", horizontal=True)
-                
-        
-                with st.form("admin_form"):
-                    # st.markdown('<h2 class="subheader">DEMOGRAPHICS</h2>', unsafe_allow_html=True)
-
-                    amendment_reason = ""
-                    if note_type == "Amendment":
-                        amendment_reason = st.text_area(
-                            "REASON FOR FORM AMENDMENT",
-                            height=100,
-                            key="amendment_reason_admin"
+                        # Update session state when selection changes
+                        if temp_note_category != st.session_state.note_category:
+                            st.session_state.note_category = temp_note_category
+                            # Reset form data when changing note type
+                            if 'form_data' in st.session_state:
+                                st.session_state.form_data = {}
+                            st.rerun()
+                    # Inside the forms
+                    if st.session_state.note_category == "Administrative":
+                        st.session_state.form_data['start_time'] = st.time_input(
+                            "START TIME (EST)",
+                            value=start_time_val,
+                            key="start_time_editable_section1"
                         )
-                    
-                    is_disabled = (travel_to_client == "No")
-                    travel_time_val = 0.0 if is_disabled else st.session_state.get('admin_travel_time', 0.0)
-                    travel_time = st.number_input(
-                        "[3.1] TOTAL CLIENT TRAVEL TIME (15 MIN INCREMENTS)",
-                        min_value=0.0,
-                        max_value=24.0,
-                        step=0.25,
-                        value=travel_time_val,
-                        disabled=is_disabled,
-                        key="admin_travel_time"
-                    )
 
-                    travel_details = ""
-                    if travel_to_client == "Yes":
-                        st.markdown("""
-                        [3.2] In this section, please specify the details of all your travel destinations, 
-                        including the starting and ending addresses for each stop.
-                        """)
-                        travel_details = st.text_area("Outline each destination to and from locations")
-                    
-                    # Hidden field to store the note category - use a different key
-                    # st.markdown('<p class="section-number">1.3)</p>', unsafe_allow_html=True)
+                        
 
-                    # st.text_input("Note Category", value=st.session_state.note_category, 
-                    #              key="note_category_hidden_admin", label_visibility="hidden", disabled=True)
-                    
-                    st.markdown("**[4.1] ADMINISTRATIVE TYPE**")
-                    admin_type = st.radio(
-                        "Select Administrative Type",
-                        options=["MEETING", "Training", "Travel"],
-                        key="admin_type_radio",
-                        label_visibility="collapsed"
-                    )
-                    
-                    # For Administrative notes, show section 8.1 directly here
-                    # st.markdown('<p class="section-number">8.1)</p>', unsafe_allow_html=True)
-                    st.markdown("**[4.2] PLEASE ENTER ADMINISTRATIVE WORK COMPLETED**")
-                    admin_comments = st.text_area(
-                        "Enter administrative work details",
-                        height=200,
-                        help="Provide details about the administrative work completed",
-                        key="admin_comments_direct"
-                    )
-                    
-                    # Hidden fields for required database fields
-                    total_travel_time_hidden = 0.0
-                    travel_locations_hidden = ""
-                    travel_comments_hidden = ""
-                    tasks_completed_hidden = "Administrative task"
-                    next_steps_hidden = "N/A for Administrative note"
-                    contact_types_hidden = ["DOCUMENTATION"]
-                    
-                    # Add a submit button at the bottom of the form
-                    admin_submitted = st.form_submit_button("Submit")
-                    
-                    if admin_submitted:
-                        # Process Administrative form submission
-                        # REMOVE ANY VALIDATION CODE FOR MEMBER ID
+                        note_type = st.radio(
+                            "[2] Is this a new note or an amendment to correct a previous note?",
+                            ["New Note", "Amendment"],
+                            key="admin_note_type"
+                        )
+                        travel_to_client = st.radio("[3] DID YOU TRAVEL TO/FOR CLIENT", ["Yes", "No"], index=1, key="admin_travel_radio_2", horizontal=True)
+                        with st.form("admin_form"):
+                            amendment_reason = ""
+                            if note_type == "Amendment":
+                                amendment_reason = st.text_area(
+                                    "REASON FOR FORM AMENDMENT",
+                                    height=100,
+                                    key="amendment_reason_admin"
+                                )
+                            is_disabled = (travel_to_client == "No")
+                            travel_time_val = 0.0 if is_disabled else st.session_state.get('admin_travel_time', 0.0)
+                            travel_time = st.number_input(
+                                "[3.1] TOTAL CLIENT TRAVEL TIME (15 MIN INCREMENTS)",
+                                min_value=0.0,
+                                max_value=24.0,
+                                step=0.25,
+                                value=travel_time_val,
+                                disabled=is_disabled,
+                                key="admin_travel_time"
+                            )
+                            travel_details = ""
+                            if travel_to_client == "Yes":
+                                st.markdown("""
+                                [3.2] In this section, please specify the details of all your travel destinations, 
+                                including the starting and ending addresses for each stop.
+                                """)
+                                travel_details = st.text_area("Outline each destination to and from locations")
+                            st.markdown("**[4.1] ADMINISTRATIVE TYPE**")
+                            admin_type = st.radio(
+                                "Select Administrative Type",
+                                options=["MEETING", "Training", "Travel"],
+                                key="admin_type_radio",
+                                label_visibility="collapsed"
+                            )
+                            st.markdown("**[4.2] PLEASE ENTER ADMINISTRATIVE WORK COMPLETED**")
+                            admin_comments = st.text_area(
+                                "Enter administrative work details",
+                                height=200,
+                                help="Provide details about the administrative work completed",
+                                key="admin_comments_direct"
+                            )
+
+                            st.session_state.form_data['end_time'] = st.time_input(
+                                "END TIME (EST)",
+                                value=end_time_val,
+                                key="end_time_editable_section1"
+                            )
+                            total_travel_time_hidden = 0.0
+                            travel_locations_hidden = ""
+                            travel_comments_hidden = ""
+                            tasks_completed_hidden = "Administrative task"
+                            next_steps_hidden = "N/A for Administrative note"
+                            contact_types_hidden = ["DOCUMENTATION"]
+                            admin_submitted = st.form_submit_button("Submit")
+                            if admin_submitted:
+                                # Validate that required times are entered
+                                start_time_entered = st.session_state.form_data.get('start_time')
+                                end_time_entered = st.session_state.form_data.get('end_time')
+                                
+                                if not start_time_entered:
+                                    st.error("Please enter a Start Time before submitting the form.")
+                                    st.stop()
+                                
+                                if not end_time_entered:
+                                    st.error("Please enter an End Time before submitting the form.")
+                                    st.stop()
+                                
+                                # Process Administrative form submission
+                                # REMOVE ANY VALIDATION CODE FOR MEMBER ID
+                                
+                                # Save the form data
+                                form_data = {
+                                    'medicaid_id': medicaid_id,
+                                    'member_name': member_details.get('member_name', ''),
+                                    'member_id': member_details.get('member_id', 0),
+                                    'member_dob': member_details.get('member_dob', ''),
+                                    'note_type': note_type,
+                                    'service_date': st.session_state.selected_service_date,
+                                    'travel_to_client': travel_to_client,
+                                    'note_category': st.session_state.note_category,
+                                    'tc_name': member_details.get('tc_name', ''),
+                                    'tc_email': member_details.get('tc_email', '')
+                                }
+                                
+                                # Add user-entered times from the form
+                                if 'start_time' in st.session_state.form_data:
+                                    start_time = st.session_state.form_data['start_time']
+                                    if hasattr(start_time, 'strftime'):
+                                        form_data['start_time'] = start_time.strftime("%H:%M")
+                                    else:
+                                        form_data['start_time'] = str(start_time)
+                                
+                                if 'end_time' in st.session_state.form_data:
+                                    end_time = st.session_state.form_data['end_time']
+                                    if hasattr(end_time, 'strftime'):
+                                        form_data['end_time'] = end_time.strftime("%H:%M")
+                                    else:
+                                        form_data['end_time'] = str(end_time)
+                                
+                                # Add amendment reason if applicable
+                                if note_type == "Amendment":
+                                    form_data['amendment_reason'] = amendment_reason
+                                
+                                # Add travel details if applicable
+                                if travel_to_client == "Yes":
+                                    form_data['travel_time'] = travel_time
+                                    form_data['travel_details'] = travel_details
+                                else:
+                                    form_data['travel_time'] = 0.0
+                                    form_data['travel_details'] = ""
+                                
+                                # Add admin type if applicable
+                                form_data['admin_type'] = admin_type
+                                form_data['admin_comments'] = admin_comments
+                                
+                                # Add default values for required fields in other sections
+                                form_data['total_travel_time'] = total_travel_time_hidden
+                                form_data['travel_locations'] = travel_locations_hidden
+                                form_data['travel_comments'] = travel_comments_hidden
+                                form_data['tasks_completed'] = tasks_completed_hidden
+                                form_data['next_steps'] = next_steps_hidden
+                                form_data['contact_types'] = contact_types_hidden
+                                
+                                # For Administrative notes, create the complete entry and submit
+                                # Use the new mapping function to convert form data to required fields
+                                entry = map_form_data_to_required_fields(form_data)
+                                # entry["timestamp"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
+                                
+                                # Add the extra fields that are not in REQUIRED_FIELDS but needed for the database
+                                extra_fields = [
+                                    'medicaid_id', 'member_name', 'member_dob', 'member_id',
+                                    'tc_name', 'tc_email', 'service_date', 'start_time', 'end_time'
+                                ]
+                                for field in extra_fields:
+                                    if field in form_data:
+                                        entry[field] = form_data[field]
+                                
+                                st.session_state.log_entries.append(entry)
+                                save_entries()
+                                st.session_state.form_data = {}
+                                st.success("Administrative form submitted successfully!")
+                                
+                                # Reset form-related session states but keep user logged in
+                                st.session_state.current_section = 0
+                                st.session_state.service_date_checked = False
+                                st.session_state.duplicate_service_date_confirmed = False
+                                st.session_state.form_data = {}
+                                
+                                # Switch to Home tab to show the submitted form
+                                st.session_state.member_tab = "Home"
+                                st.rerun()
+                    else:  # Billable- TCM form
+                        existing_data = st.session_state.get('form_data', {})
+                        # if 'start_time' not in st.session_state.form_data:
+                        #     st.session_state.form_data['start_time'] = datetime.now(pytz.timezone('US/Eastern')).time()
                         
-                        # Save the form data
-                        form_data = {
-                            'medicaid_id': medicaid_id,
-                            'member_name': member_details.get('member_name', ''),
-                            'member_id': member_details.get('member_id', 0),
-                            'member_dob': member_details.get('member_dob', ''),
-                            'note_type': note_type,
-                            'service_date': st.session_state.selected_service_date,
-                            'travel_to_client': travel_to_client,
-                            'note_category': st.session_state.note_category,
-                            'tc_name': member_details.get('tc_name', ''),
-                            'tc_email': member_details.get('tc_email', '')
-                        }
+                        # Get medicaid_id from session state
+                        st.session_state.form_data['start_time'] = st.time_input(
+                                "START TIME (EST)",
+                                value=start_time_val,
+                                key="start_time_editable_section1"
+                            )
                         
-                        # Add amendment reason if applicable
-                        if note_type == "Amendment":
-                            form_data['amendment_reason'] = amendment_reason
                         
-                        # Add travel details if applicable
-                        if travel_to_client == "Yes":
-                            form_data['travel_time'] = travel_time
-                            form_data['travel_details'] = travel_details
-                        else:
-                            form_data['travel_time'] = 0.0
-                            form_data['travel_details'] = ""
-                        
-                        # Add admin type if applicable
-                        form_data['admin_type'] = admin_type
-                        form_data['admin_comments'] = admin_comments
-                        
-                        # Add default values for required fields in other sections
-                        form_data['total_travel_time'] = total_travel_time_hidden
-                        form_data['travel_locations'] = travel_locations_hidden
-                        form_data['travel_comments'] = travel_comments_hidden
-                        form_data['tasks_completed'] = tasks_completed_hidden
-                        form_data['next_steps'] = next_steps_hidden
-                        form_data['contact_types'] = contact_types_hidden
-                        
-                        # For Administrative notes, create the complete entry and submit
-                        # Use the new mapping function to convert form data to required fields
-                        entry = map_form_data_to_required_fields(form_data)
-                        entry["timestamp"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
-                        
-                        # Add the extra fields that are not in REQUIRED_FIELDS but needed for the database
-                        extra_fields = [
-                            'medicaid_id', 'member_name', 'member_dob', 'member_id',
-                            'tc_name', 'tc_email', 'service_date', 'start_time', 'end_time'
-                        ]
-                        for field in extra_fields:
-                            if field in form_data:
-                                entry[field] = form_data[field]
-                        
-                        st.session_state.log_entries.append(entry)
-                        save_entries()
-                        st.session_state.form_data = {}
-                        st.success("Administrative form submitted successfully!")
-                        
-                        # Reset form-related session states
-                        st.session_state.current_section = 0
-                        st.session_state.member_verified = False
-                        st.session_state.member_data = {}
-                        
-                        # Change navigation to Member Login
-                        st.session_state.nav_selection = "Member Login"
-                        st.rerun()
-            else:  # Billable- TCM form
-                existing_data = st.session_state.get('form_data', {})
-                if 'start_time' not in st.session_state.form_data:
-                    st.session_state.form_data['start_time'] = datetime.now(pytz.timezone('US/Eastern')).time()
-                
-                # Get medicaid_id from session state
-               
-                
-                note_type = st.radio(
-                    "**[2] Is this a new note or an amendment to correct a previous note?**",
-                    ["New Note", "Amendment"],
-                    index=0 if existing_data.get('note_type') != "Amendment" else 1,
-                    key="tcm_note_type"
-                )
-                travel_to_client = st.radio("**[3] DID YOU TRAVEL TO/FOR CLIENT**", ["Yes", "No"], index=1, key="tcm_travel_radio_2", horizontal=True)
+                        note_type = st.radio(
+                            "**[2] Is this a new note or an amendment to correct a previous note?**",
+                            ["New Note", "Amendment"],
+                            index=0 if existing_data.get('note_type') != "Amendment" else 1,
+                            key="tcm_note_type"
+                        )
+                        travel_to_client = st.radio("**[3] DID YOU TRAVEL TO/FOR CLIENT**", ["Yes", "No"], index=1, key="tcm_travel_radio_2", horizontal=True)
+                                    
+                        # TCM-specific fields with auto-adjustment logic
+                        st.markdown("**[4] TCM HOURS AND UNITS**")
+
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            tcm_hours_input = st.number_input(
+                                "TCM HOURS (15 min increments)",
+                                min_value=0.0,
+                                max_value=24.0,
+                                step=0.25,
+                                value=existing_data.get('tcm_hours_input', 0.0),
+                                key="tcm_hours_input",
+                                help="Enter time in 15-minute increments (e.g., 1.25 = 1 hour 15 minutes)"
+                            )
+
+                        # Auto-adjustment logic: Adjusted Hours = Entered Hours + 0.25
+                        if tcm_hours_input > 0:
+                            adjusted_hours = tcm_hours_input + 0.25
+                            auto_units = int(adjusted_hours * 4)  # Units = Adjusted Hours * 4
                             
-                # TCM-specific fields with auto-adjustment logic
-                st.markdown("**[4] TCM HOURS AND UNITS**")
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    tcm_hours_input = st.number_input(
-                        "TCM HOURS (15 min increments)",
-                        min_value=0.0,
-                        max_value=24.0,
-                        step=0.25,
-                        value=existing_data.get('tcm_hours_input', 0.0),
-                        key="tcm_hours_input",
-                        help="Enter time in 15-minute increments (e.g., 1.25 = 1 hour 15 minutes)"
-                    )
-
-                # Auto-adjustment logic: Adjusted Hours = Entered Hours + 0.25
-                if tcm_hours_input > 0:
-                    adjusted_hours = tcm_hours_input + 0.25
-                    auto_units = int(adjusted_hours * 4)  # Units = Adjusted Hours * 4
-                    
-                    # Display the adjusted values
-                    st.info(f"📊 **Auto-Adjustment Applied:**\n"
-                            f"- Entered Hours: {tcm_hours_input}\n"
-                            f"- Adjusted Hours: {adjusted_hours}\n" 
-                            f"- Calculated Units: {auto_units}")
-                    
-                    # Set the adjusted values
-                    tcm_hours = adjusted_hours
-                    tcm_units = auto_units
-                else:
-                    tcm_hours = tcm_hours_input
-                    tcm_units = 0
-
-                with col2:
-                    # Display the auto-calculated units (read-only or editable)
-                    tcm_units_display = st.number_input(
-                        "TCM UNITS (Auto-calculated)",
-                        min_value=0,
-                        max_value=96,
-                        step=1,
-                        value=tcm_units,
-                        key="tcm_units_display",
-                        help="Automatically calculated: (Hours + 0.25) × 4",
-                        disabled=True  # Make read-only since it's auto-calculated
-                    )
-
-                # Manual override option
-                manual_override = st.checkbox("Override auto-calculation", key="manual_override_tcm")
-
-                if manual_override:
-                    tcm_units_manual = st.number_input(
-                        "MANUAL TCM UNITS",
-                        min_value=0,
-                        max_value=96,
-                        step=1,
-                        value=tcm_units,
-                        key="tcm_units_manual",
-                        help="Enter custom units to override auto-calculation"
-                    )
-                    # Replace the auto-calculated value with manual input
-                    tcm_units = tcm_units_manual
-
-                # Final values to use in your form submission
-                final_tcm_hours = tcm_hours_input  # Store original entered hours
-                final_tcm_units = tcm_units        # Store final units (auto-calc or manual)
-                #############################################################################################
-
-                with st.form("tcm_form_section1"):
-                    amendment_reason = ""
-                    if note_type == "Amendment":
-                        st.markdown('<p class="section-number">1.1a)</p>', unsafe_allow_html=True)
-                        amendment_reason = st.text_area(
-                            "REASON FOR FORM AMENDMENT",
-                            value=existing_data.get('amendment_reason', ''),
-                            height=100,
-                            key="amendment_reason"
-                        )
-                    
-                    
-                    
-                    is_disabled = (travel_to_client == "No")
-                    
-                    if is_disabled:
-                        travel_time_val = 0.0
-                    else:
-                        travel_time_val = st.session_state.get('tcm_travel_time', existing_data.get('travel_time', 0.0))
-
-                    travel_time = st.number_input(
-                        "[3.1] TOTAL CLIENT TRAVEL TIME (15 MIN INCREMENTS)",
-                        min_value=0.0,
-                        max_value=24.0,
-                        step=0.25,
-                        value=float(travel_time_val),
-                        disabled=is_disabled,
-                        key="tcm_travel_time"
-                    )
-
-                    # if travel_to_client == "Yes":
-                    st.markdown("""
-                    [3.2] In this section, please specify the details of all your travel destinations, 
-                    including the starting and ending addresses for each stop.
-                    """)
-                    travel_details = st.text_area("Outline each destination to and from locations", value=existing_data.get('travel_details', ''))
-                
-                    cpt_options = ["Please select",
-                        "T1017 TRANSITION COORDINATION",
-                            "T2038 HOUSEHOLD SET UP TIME",
-                            "Administrative"]
-                    cpt_index = 0
-                    if existing_data.get('cpt_code') in cpt_options:
-                        cpt_index = cpt_options.index(existing_data.get('cpt_code'))
-                    
-                    cpt_code = st.selectbox(
-                        "**[5] CPT CODE**",
-                        cpt_options,
-                        index=cpt_index
-                    )
-                
-                    icd_10 = st.checkbox("**ICD 10 - R99**", 
-                    value=existing_data.get('icd_10', False),
-                    help="International Classification of Diseases, 10th revision code")
-
-                    # Add a Next button at the bottom of the form
-                    tcm_submitted = st.form_submit_button("Next")
-                    
-                    if tcm_submitted:
-                        # Process TCM form section 1 submission
-                        # REMOVE ANY VALIDATION CODE FOR MEMBER ID
-                        end_time = datetime.now(pytz.timezone('US/Eastern')).time()
-                        
-                        # Save the form data
-                        form_data = {
-                            'medicaid_id': medicaid_id,
-                            'member_name': member_details.get('member_name', ''),
-                            'member_id': member_details.get('member_id', 0),
-                            'member_dob': member_details.get('member_dob', ''),
-                            'note_type': note_type,
-                            'service_date': st.session_state.selected_service_date,
-                            'travel_to_client': travel_to_client,
-                            'note_category': st.session_state.note_category,
-                            'start_time': st.session_state.form_data['start_time'].strftime("%H:%M"),
-                            'end_time': end_time.strftime("%H:%M"),
-                            'tc_name': member_details.get('tc_name', ''),
-                            'tc_email': member_details.get('tc_email', '')
-                        }
-                        
-                        # Add amendment reason if applicable
-                        if note_type == "Amendment" and 'amendment_reason' in locals():
-                            form_data['amendment_reason'] = amendment_reason
-                        
-                        # Add travel details if applicable
-                        if travel_to_client == "Yes":
-                            form_data['travel_time'] = travel_time
-                            form_data['travel_details'] = travel_details
+                            # Display the adjusted values
+                            st.info(f"📊 **Auto-Adjustment Applied:**\n"
+                                    f"- Entered Hours: {tcm_hours_input}\n"
+                                    f"- Adjusted Hours: {adjusted_hours}\n" 
+                                    f"- Calculated Units: {auto_units}")
+                            
+                            # Set the adjusted values
+                            tcm_hours = adjusted_hours
+                            tcm_units = auto_units
                         else:
-                            form_data['travel_time'] = 0.0
-                            form_data['travel_details'] = ""
+                            tcm_hours = tcm_hours_input
+                            tcm_units = 0
+
+                        with col2:
+                            # Display the auto-calculated units (read-only or editable)
+                            tcm_units_display = st.number_input(
+                                "TCM UNITS (Auto-calculated)",
+                                min_value=0,
+                                max_value=96,
+                                step=1,
+                                value=tcm_units,
+                                key="tcm_units_display",
+                                help="Automatically calculated: (Hours + 0.25) × 4",
+                                disabled=True  # Make read-only since it's auto-calculated
+                            )
+
+                        # Manual override option
+                        # manual_override = st.checkbox("Override auto-calculation", key="manual_override_tcm")
+
+                        # if manual_override:
+                        #     tcm_units_manual = st.number_input(
+                        #         "MANUAL TCM UNITS",
+                        #         min_value=0,
+                        #         max_value=96,
+                        #         step=1,
+                        #         value=tcm_units,
+                        #         key="tcm_units_manual",
+                        #         help="Enter custom units to override auto-calculation"
+                        #     )
+                        #     # Replace the auto-calculated value with manual input
+                        #     tcm_units = tcm_units_manual
+
+                        # Final values to use in your form submission
+                        final_tcm_hours = tcm_hours_input  # Store original entered hours
+                        final_tcm_units = tcm_units        # Store final units (auto-calc or manual)
+                        #############################################################################################
+
+                        with st.form("tcm_form_section1"):
+                            amendment_reason = ""
+                            if note_type == "Amendment":
+                                st.markdown('<p class="section-number">1.1a)</p>', unsafe_allow_html=True)
+                                amendment_reason = st.text_area(
+                                    "REASON FOR FORM AMENDMENT",
+                                    value=existing_data.get('amendment_reason', ''),
+                                    height=100,
+                                    key="amendment_reason"
+                                )
+                            
+                            
+                            
+                            is_disabled = (travel_to_client == "No")
+                            
+                            if is_disabled:
+                                travel_time_val = 0.0
+                            else:
+                                travel_time_val = st.session_state.get('tcm_travel_time', existing_data.get('travel_time', 0.0))
+
+                            travel_time = st.number_input(
+                                "[3.1] TOTAL CLIENT TRAVEL TIME (15 MIN INCREMENTS)",
+                                min_value=0.0,
+                                max_value=24.0,
+                                step=0.25,
+                                value=float(travel_time_val),
+                                disabled=is_disabled,
+                                key="tcm_travel_time"
+                            )
+
+                            # if travel_to_client == "Yes":
+                            st.markdown("""
+                            [3.2] In this section, please specify the details of all your travel destinations, 
+                            including the starting and ending addresses for each stop.
+                            """)
+                            travel_details = st.text_area("Outline each destination to and from locations", value=existing_data.get('travel_details', ''))
                         
-                        # Add TCM details
-                        form_data['tcm_hours'] = tcm_hours
-                        form_data['tcm_units'] = tcm_units
-                        form_data['icd_10'] = icd_10
-                        form_data['cpt_code'] = cpt_code
+                            cpt_options = ["Please select",
+                                "T1017 TRANSITION COORDINATION",
+                                    "T2038 HOUSEHOLD SET UP TIME",
+                                    "Administrative"]
+                            cpt_index = 0
+                            if existing_data.get('cpt_code') in cpt_options:
+                                cpt_index = cpt_options.index(existing_data.get('cpt_code'))
+                            
+                            cpt_code = st.selectbox(
+                                "**[5] CPT CODE**",
+                                cpt_options,
+                                index=cpt_index
+                            )
                         
-                        # Update session state
-                        st.session_state.form_data.update(form_data)  # Use update to preserve existing data
-                        
-                        if tcm_submitted:
-                            # Move to next section for sequential navigation
-                            st.session_state.current_section = 2
-                        
-                        # Build entry with all required fields using the new mapping function
-                        entry = map_form_data_to_required_fields(st.session_state.form_data)
-                        entry["timestamp"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
-                        
-                        # Add the extra fields that are not in REQUIRED_FIELDS but needed for the database
-                        extra_fields = [
-                            'medicaid_id', 'member_name', 'member_dob', 'member_id',
-                            'tc_name', 'tc_email', 'service_date', 'start_time', 'end_time'
-                        ]
-                        for field in extra_fields:
-                            if field in st.session_state.form_data:
-                                entry[field] = st.session_state.form_data[field]
-                        
-                        st.session_state.log_entries.append(entry)
-                        save_entries()
-                        st.session_state.form_data = {}
-                        st.success("TCM form section 1 submitted successfully!")
-                        
-                        st.rerun()
+                            icd_10 = st.checkbox("**ICD 10 - R99**", 
+                            value=existing_data.get('icd_10', False),
+                            help="International Classification of Diseases, 10th revision code")
+
+                            # Add a Next button at the bottom of the form
+                            tcm_submitted = st.form_submit_button("Next")
+                            
+                            if tcm_submitted:
+                                # Validate that required times are entered
+                                start_time_entered = st.session_state.form_data.get('start_time')
+                                
+                                if not start_time_entered:
+                                    st.error("Please enter a Start Time before proceeding.")
+                                    st.stop()
+                                
+                                
+                                # Process TCM form section 1 submission
+                                # REMOVE ANY VALIDATION CODE FOR MEMBER ID
+                                # end_time = datetime.now(pytz.timezone('US/Eastern')).time()
+                                
+                                # Save the form data
+                                form_data = {
+                                    'medicaid_id': medicaid_id,
+                                    'member_name': member_details.get('member_name', ''),
+                                    'member_id': member_details.get('member_id', 0),
+                                    'member_dob': member_details.get('member_dob', ''),
+                                    'note_type': note_type,
+                                    'service_date': st.session_state.selected_service_date,
+                                    'travel_to_client': travel_to_client,
+                                    'note_category': st.session_state.note_category,
+                                    'tc_name': member_details.get('tc_name', ''),
+                                    'tc_email': member_details.get('tc_email', '')
+                                }
+                                
+                                # Add user-entered times from the form
+                                if 'start_time' in st.session_state.form_data:
+                                    start_time = st.session_state.form_data['start_time']
+                                    if hasattr(start_time, 'strftime'):
+                                        form_data['start_time'] = start_time.strftime("%H:%M")
+                                    else:
+                                        form_data['start_time'] = str(start_time)
+                                
+                                if 'end_time' in st.session_state.form_data:
+                                    end_time = st.session_state.form_data['end_time']
+                                    if hasattr(end_time, 'strftime'):
+                                        form_data['end_time'] = end_time.strftime("%H:%M")
+                                    else:
+                                        form_data['end_time'] = str(end_time)
+                                
+                                # Add amendment reason if applicable
+                                if note_type == "Amendment" and 'amendment_reason' in locals():
+                                    form_data['amendment_reason'] = amendment_reason
+                                
+                                # Add travel details if applicable
+                                if travel_to_client == "Yes":
+                                    form_data['travel_time'] = travel_time
+                                    form_data['travel_details'] = travel_details
+                                else:
+                                    form_data['travel_time'] = 0.0
+                                    form_data['travel_details'] = ""
+                                
+                                # Add TCM details
+                                form_data['tcm_hours'] = tcm_hours
+                                form_data['tcm_units'] = tcm_units
+                                form_data['icd_10'] = icd_10
+                                form_data['cpt_code'] = cpt_code
+                                
+                                # Update session state
+                                st.session_state.form_data.update(form_data)  # Use update to preserve existing data
+                                
+                                if tcm_submitted:
+                                    # Move to next section for sequential navigation
+                                    st.session_state.current_section = 2
+                                    st.rerun()
 
 
 elif st.session_state.nav_selection == "Support":
@@ -1432,30 +1605,26 @@ if st.session_state.duplicate_service_date_confirmed:
         # Your existing section 1 code
         pass
     
-    # Section 2
     
     # Section 3
     elif st.session_state.current_section == 2:
         with st.form("tasks_form"):
+            # REMOVED START TIME FROM SECTION 2
             st.markdown('<h2 class="subheader">[6] TASKS COMPLETED</h2>', unsafe_allow_html=True)
-            
             tasks_completed_text = st.text_area(
                 "**[6.1] TRANSITION COORDINATION TASK COMPLETED**",
                 height=25
             )
-            
             tasks_completed_text = st.text_area(
                 "**[6.2] ENTER TASKS COMPLETED**",
                 height=25,
                 help="Describe all transition coordination tasks completed during this session"
             )
-        
             next_steps = st.text_area(
                 "**[6.3] ENTER NEXT STEPS AND FOLLOW-UP PLAN**",
                 height=25,
                 help="Detail the planned next steps and follow-up actions"
             )
-        
             st.markdown("**[7] TYPE OF CONTACT**")
             contact_types = st.multiselect(
                 "SELECT TYPE(S) OF CONTACT",
@@ -1464,34 +1633,25 @@ if st.session_state.duplicate_service_date_confirmed:
                     "EMAIL",
                     "IN PERSON",
                     "DOCUMENTATION",
+                    "VIRTUAL",
                     "Other"
                 ]
             )
-            
-            
             other_contact_type = None
             if "Other" in contact_types:
                 other_contact_type = st.text_input(
                     "Please specify other contact type(s)"
                 )
-            
             submitted = st.form_submit_button("Next")
             if submitted:
-                # Save section 3 data
                 section_data = {
                     'tasks_completed': tasks_completed_text,
                     'next_steps': next_steps,
                     'contact_types': contact_types
                 }
-                
-                # Only add other_contact_type if it exists
                 if other_contact_type:
                     section_data['other_contact_type'] = other_contact_type
-                
-                # Update session state
                 st.session_state.form_data.update(section_data)
-                
-                # Move to next section
                 st.session_state.current_section += 1
                 st.rerun()
 
@@ -1679,7 +1839,7 @@ if st.session_state.duplicate_service_date_confirmed:
                     if need_fourth_contact == "Yes":
                         st.session_state.current_section = 6
                     else:
-                        st.session_state.current_section = 7
+                        st.session_state.current_section = 8
                     st.rerun()
 
     # Section 7 (Fourth Contact)
@@ -1748,85 +1908,65 @@ if st.session_state.duplicate_service_date_confirmed:
                 help="Provide details about the administrative work completed",
                 key="admin_comments_sec8"
             )
-            
+
+            end_time_val = st.session_state.get('form_data', {}).get('end_time', dt_time(17, 0))
+            st.session_state.form_data['end_time'] = st.time_input(
+                "END TIME (EST)",
+                value=end_time_val,
+                key="end_time_editable_section1"
+            )
             submitted = st.form_submit_button("Submit")
             
             if submitted:
+                # Validate that required times are entered
+                start_time_entered = st.session_state.form_data.get('start_time')
+                end_time_entered = st.session_state.form_data.get('end_time')
+                
+                if not start_time_entered:
+                    st.error("Please enter a Start Time before submitting the form.")
+                    st.stop()
+                
+                if not end_time_entered:
+                    st.error("Please enter an End Time before submitting the form.")
+                    st.stop()
+                
                 # Save the admin comments
                 st.session_state.form_data.update({"admin_comments": admin_comments if admin_comments else ""})
+                
+                # Use only user-entered times, no automatic system time
+                # Ensure the form data contains the actual user-entered times
+                if 'start_time' in st.session_state.form_data:
+                    # Convert time object to string format if needed
+                    start_time = st.session_state.form_data['start_time']
+                    if hasattr(start_time, 'strftime'):
+                        st.session_state.form_data['start_time'] = start_time.strftime("%H:%M")
+                
+                if 'end_time' in st.session_state.form_data:
+                    # Convert time object to string format if needed
+                    end_time = st.session_state.form_data['end_time']
+                    if hasattr(end_time, 'strftime'):
+                        st.session_state.form_data['end_time'] = end_time.strftime("%H:%M")
+                
                 # Build entry with all required fields using the new mapping function
                 entry = map_form_data_to_required_fields(st.session_state.form_data)
-                entry["timestamp"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
+                # Remove 'Id' and 'timestamp' if present
+                entry.pop('Id', None)
+                entry.pop('timestamp', None)
                 
-                # Add the extra fields that are not in REQUIRED_FIELDS but needed for the database
-                extra_fields = [
-                    'medicaid_id', 'member_name', 'member_dob', 'member_id',
-                    'tc_name', 'tc_email', 'service_date', 'start_time', 'end_time'
-                ]
-                for field in extra_fields:
-                    if field in st.session_state.form_data:
-                        entry[field] = st.session_state.form_data[field]
+                # Only use user-entered times, no automatic fallback
+                # If times are missing, they will remain as entered (or empty)
                 
                 st.session_state.log_entries.append(entry)
                 save_entries()
                 st.session_state.form_data = {}
                 st.success("Form submitted successfully!")
                 
-                # Reset form-related session states
-                st.session_state.current_section = 1
-                st.session_state.member_verified = False
-                st.session_state.member_data = {}
+                # Reset form-related session states but keep user logged in
+                st.session_state.current_section = 0
                 st.session_state.service_date_checked = False
                 st.session_state.duplicate_service_date_confirmed = False
                 
-                # Change navigation to Member Login
-                st.session_state.nav_selection = "Member Login"
+                # Switch to Home tab to show the submitted form
+                st.session_state.member_tab = "Home"
                 st.rerun()
                 # For save_continue, just save the data and stay on current section
-
-elif st.session_state.get('admin_selection') == "Payroll":
-    st.markdown('<h2 class="subheader">Payroll</h2>', unsafe_allow_html=True)
-    st.markdown("🚧 **Coming Soon!** 🚧")
-    st.markdown("This feature is currently under development. Check back later for updates.")
-elif st.session_state.get('admin_selection') == "Add Member":
-    st.markdown('<h2 class="subheader">Add Member</h2>', unsafe_allow_html=True)
-    with st.form("add_member_form"):
-        col1, col2, col3 = st.columns([1,1,1])
-        with col1:
-            first_name = st.text_input("First Name *", placeholder="Enter First Name")
-            dob = st.date_input("Date of Birth *")
-            ssn = st.text_input("SSN", placeholder="Enter SSN")
-            gender = st.selectbox("Gender", ["", "Male", "Female", "Other", "Prefer not to say"], index=0)
-            religious_pref = st.selectbox("Religious Preference", ["", "Christianity", "Judaism", "Islam", "Hinduism", "Buddhism", "Other", "None"], index=0)
-        with col2:
-            last_name = st.text_input("Last Name *", placeholder="Enter Last Name")
-            email = st.text_input("Email", placeholder="Enter Contact Email")
-            medicaid_id = st.text_input("Medicaid Id *", placeholder="Enter State/Medicaid ID")
-            language = st.selectbox("Language", ["", "English", "Spanish", "Other"], index=0)
-            marital_status = st.selectbox("Marital Status", ["", "Single", "Married", "Divorced", "Widowed", "Other"], index=0)
-        with col3:
-            member_id = st.text_input("Member ID (Internal)", placeholder="Enter Member ID")
-            phone = st.text_input("Phone Number", value="+1")
-            medicare_id = st.text_input("Medicare ID", placeholder="Enter Medicare Id")
-            race = st.selectbox("Race", ["", "White", "Black or African American", "Asian", "Native American", "Pacific Islander", "Other"], index=0)
-        submitted = st.form_submit_button("Add Member")
-        if submitted:
-            # For now, just print/save to session state
-            st.session_state.new_member_data = {
-                "first_name": first_name,
-                "last_name": last_name,
-                "member_id": member_id,
-                "dob": str(dob),
-                "email": email,
-                "phone": phone,
-                "ssn": ssn,
-                "medicaid_id": medicaid_id,
-                "medicare_id": medicare_id,
-                "gender": gender,
-                "language": language,
-                "race": race,
-                "religious_pref": religious_pref,
-                "marital_status": marital_status
-            }
-            st.success("Member data captured (not yet saved to database).")
-            st.json(st.session_state.new_member_data)
