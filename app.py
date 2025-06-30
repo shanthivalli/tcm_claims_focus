@@ -1106,11 +1106,14 @@ if st.session_state.nav_selection == "Member Login":
                             st.rerun()
                     # Inside the forms
                     if st.session_state.note_category == "Administrative":
-                        st.session_state.form_data['start_time'] = st.time_input(
+                        # Administrative section start_time
+                        start_time_val = parse_time(st.session_state.get('form_data', {}).get('start_time', None), default=dt_time(9, 0))
+                        start_time_input = st.time_input(
                             "START TIME (EST)",
                             value=start_time_val,
                             key="start_time_editable_section1"
                         )
+                        st.session_state.form_data['start_time'] = start_time_input
 
                         
 
@@ -1161,11 +1164,14 @@ if st.session_state.nav_selection == "Member Login":
                                 key="admin_comments_direct"
                             )
 
-                            st.session_state.form_data['end_time'] = st.time_input(
+                            # Administrative section end_time
+                            end_time_val = parse_time(st.session_state.get('form_data', {}).get('end_time', None), default=dt_time(17, 0))
+                            end_time_input = st.time_input(
                                 "END TIME (EST)",
                                 value=end_time_val,
                                 key="end_time_editable_section1"
                             )
+                            st.session_state.form_data['end_time'] = end_time_input
                             total_travel_time_hidden = 0.0
                             travel_locations_hidden = ""
                             travel_comments_hidden = ""
@@ -1276,11 +1282,14 @@ if st.session_state.nav_selection == "Member Login":
                         #     st.session_state.form_data['start_time'] = datetime.now(pytz.timezone('US/Eastern')).time()
                         
                         # Get medicaid_id from session state
-                        st.session_state.form_data['start_time'] = st.time_input(
+                        start_time_input = st.time_input(
                                 "START TIME (EST)",
                                 value=start_time_val,
                                 key="start_time_editable_section1"
                             )
+                        
+                        # Store the time input value in session state after the widget
+                        st.session_state.form_data['start_time'] = start_time_input
                         
                         
                         note_type = st.radio(
@@ -1609,15 +1618,10 @@ if st.session_state.duplicate_service_date_confirmed:
     # Section 3
     elif st.session_state.current_section == 2:
         with st.form("tasks_form"):
-            # REMOVED START TIME FROM SECTION 2
             st.markdown('<h2 class="subheader">[6] TASKS COMPLETED</h2>', unsafe_allow_html=True)
             tasks_completed_text = st.text_area(
-                "**[6.1] TRANSITION COORDINATION TASK COMPLETED**",
-                height=25
-            )
-            tasks_completed_text = st.text_area(
-                "**[6.2] ENTER TASKS COMPLETED**",
-                height=25,
+                "**[6.1 & 6.2] ENTER TASKS COMPLETED**",
+                height=50,
                 help="Describe all transition coordination tasks completed during this session"
             )
             next_steps = st.text_area(
@@ -1909,12 +1913,14 @@ if st.session_state.duplicate_service_date_confirmed:
                 key="admin_comments_sec8"
             )
 
-            end_time_val = st.session_state.get('form_data', {}).get('end_time', dt_time(17, 0))
-            st.session_state.form_data['end_time'] = st.time_input(
+            # Final section end_time
+            end_time_val = parse_time(st.session_state.get('form_data', {}).get('end_time', None), default=dt_time(17, 0))
+            end_time_input = st.time_input(
                 "END TIME (EST)",
                 value=end_time_val,
                 key="end_time_editable_section1"
             )
+            st.session_state.form_data['end_time'] = end_time_input
             submitted = st.form_submit_button("Submit")
             
             if submitted:
@@ -1970,3 +1976,13 @@ if st.session_state.duplicate_service_date_confirmed:
                 st.session_state.member_tab = "Home"
                 st.rerun()
                 # For save_continue, just save the data and stay on current section
+
+def parse_time(val, default=dt_time(9, 0)):
+    if isinstance(val, dt_time):
+        return val
+    if isinstance(val, str):
+        try:
+            return dt_time.strptime(val, "%H:%M").time()
+        except Exception:
+            pass
+    return default
