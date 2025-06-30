@@ -243,6 +243,18 @@ def save_entries():
     except Exception as e:
         st.error(f"Error saving entries: {str(e)}")
         return False
+      
+
+def parse_time(val, default=dt_time(9, 0)):
+    if isinstance(val, dt_time):
+        return val
+    if isinstance(val, str):
+        try:
+            return dt_time.strptime(val, "%H:%M").time()
+        except Exception:
+            pass
+    return default
+  
 
 def validate_medicaid_id(medicaid_id: str) -> tuple[bool, str]:
     """
@@ -1977,12 +1989,4 @@ if st.session_state.duplicate_service_date_confirmed:
                 st.rerun()
                 # For save_continue, just save the data and stay on current section
 
-def parse_time(val, default=dt_time(9, 0)):
-    if isinstance(val, dt_time):
-        return val
-    if isinstance(val, str):
-        try:
-            return dt_time.strptime(val, "%H:%M").time()
-        except Exception:
-            pass
-    return default
+
