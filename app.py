@@ -1633,6 +1633,7 @@ if st.session_state.duplicate_service_date_confirmed:
             st.markdown('<h2 class="subheader">[6] TASKS COMPLETED</h2>', unsafe_allow_html=True)
             tasks_completed_text = st.text_area(
                 "**[6.1 & 6.2] ENTER TASKS COMPLETED**",
+                value="",
                 height=50,
                 help="Describe all transition coordination tasks completed during this session"
             )
